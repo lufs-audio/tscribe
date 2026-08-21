@@ -1,0 +1,27 @@
+# EditorConfig: https://editorconfig.org
+# Read natively by nearly every editor and IDE -- no plugin, no vendor lock-in,
+# just a plain-text convention. Same reasoning as this project's git init: the
+# thing that carries the convention is a file in the repo, not a setting in
+# someone's personal tool.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_size = 4
+
+[*.rs]
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+
+[*.md]
+# Trailing whitespace is significant in Markdown (two spaces = hard line break).
+trim_trailing_whitespace = false

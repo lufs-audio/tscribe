@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tscribe"
+version = "0.1.0"
+description = "A contract-first Python project"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Daniel Ramirez" }
+]
+dependencies = []
+
+[project.scripts]
+tscribe = "tscribe.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.5.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

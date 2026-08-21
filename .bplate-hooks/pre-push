@@ -1,0 +1,35 @@
+#!/bin/sh
+# Installed by bplate's agent-core trait into .git/hooks/pre-push (git never
+# versions hooks directly, so the source lives here, tracked, and `bplate new`
+# copies it into place after `git init`).
+#
+# This is a reminder, not a gate: it never blocks a push (always exits 0).
+# A hard gate on "did you update the docs" would be dishonest -- that isn't
+# something a script can actually verify, only nudge about. A hard gate on
+# "does the check task pass" would be a real gate, so this deliberately keeps
+# that soft too, on the same footing, rather than mixing an honest check with
+# a hopeful one and letting the strong one imply the weak one is equally real.
+#
+# Reminders go to stderr, not stdout: this is advisory noise around the push,
+# not the push's own output, and stderr is what most git front-ends surface
+# to a human (or an agent watching the command) during a push.
+
+if [ -f AGENTS.md ] && grep -q "bplate:todo-before-push" AGENTS.md 2>/dev/null; then
+    echo "" >&2
+    echo "bplate reminder: AGENTS.md still has its scaffold placeholder untouched." >&2
+    echo "  Update AGENTS.md (and README.md) to describe what this project" >&2
+    echo "  actually does before this goes further. Not a gate -- continuing." >&2
+    echo "" >&2
+fi
+
+if [ -f .mise.toml ] && command -v mise >/dev/null 2>&1; then
+    if ! check_output=$(mise run check 2>&1); then
+        echo "" >&2
+        echo "bplate reminder: 'mise run check' is currently failing:" >&2
+        echo "$check_output" | tail -n 10 | sed 's/^/  /' >&2
+        echo "  Not a gate -- continuing." >&2
+        echo "" >&2
+    fi
+fi
+
+exit 0

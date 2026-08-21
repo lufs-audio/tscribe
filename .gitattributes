@@ -1,0 +1,11 @@
+# Normalize line endings to LF in the repository regardless of how a
+# contributor's platform or editor checks files out.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

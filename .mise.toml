@@ -1,0 +1,15 @@
+[env]
+_.python.venv = ".venv"
+_.path = ["./node_modules/.bin", "./.venv/bin"]
+
+[tasks.test]
+description = "Run project test suite"
+run = "test -f pyproject.toml && uv run pytest; test -f package.json && npm test; test -f Cargo.toml && cargo test; true"
+
+[tasks.check]
+description = "Run linters and format checks"
+run = "test -f pyproject.toml && uv run ruff check .; test -f Cargo.toml && cargo clippy; true"
+
+[tasks.fmt]
+description = "Auto-format code"
+run = "test -f pyproject.toml && uv run ruff format .; test -f Cargo.toml && cargo fmt; true"
