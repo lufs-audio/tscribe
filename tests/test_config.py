@@ -203,3 +203,36 @@ def test_config_to_dict_serializes_enums_to_their_values():
     assert d["backend"] == "local"
     assert isinstance(d["local"], dict)
     assert d["local"]["model_size"] == "small"
+
+
+# ---------------------------------------------------------------------------
+# ServerConfig (Unit 03) — added after Unit 01 shipped, per the "not yet
+# modeled" placeholders in docs/config-migration.md
+# ---------------------------------------------------------------------------
+
+
+def test_server_config_defaults_when_section_omitted():
+    cfg = parse_config_dict({"mode": "server", "backend": "local"})
+    assert cfg.server.api_key_env == "TSCRIBE_API_KEY"
+    assert cfg.server.max_audio_bytes == 2 * 1024**3
+    assert cfg.server.download_timeout_s == 600
+    assert cfg.server.drive_sa_json_env == "CARNYX_DRIVE_SA_JSON"
+
+
+def test_server_config_section_overrides_defaults():
+    cfg = parse_config_dict(
+        {
+            "mode": "server",
+            "backend": "local",
+            "server": {
+                "api_key_env": "MY_CUSTOM_KEY",
+                "max_audio_bytes": 1024,
+                "download_timeout_s": 30,
+                "drive_sa_json_env": "MY_SA_JSON",
+            },
+        }
+    )
+    assert cfg.server.api_key_env == "MY_CUSTOM_KEY"
+    assert cfg.server.max_audio_bytes == 1024
+    assert cfg.server.download_timeout_s == 30
+    assert cfg.server.drive_sa_json_env == "MY_SA_JSON"
