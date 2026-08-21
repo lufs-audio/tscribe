@@ -99,6 +99,24 @@ class SummarizationConfig:
 
 
 @dataclass
+class ServerConfig:
+    """mode: server settings. Added in Unit 03 — flagged as "not yet modeled"
+    in docs/config-migration.md when Unit 01 shipped; this is that follow-up.
+    Fields map 1:1 to carnyx's env vars (see the migration doc for the table),
+    now sourced from tscribe.yaml like everything else instead of living in a
+    second, server-only config surface.
+    """
+
+    api_key_env: str = "TSCRIBE_API_KEY"
+    max_audio_bytes: int = 2 * 1024**3  # 2 GiB
+    download_timeout_s: int = 600
+    # Google Drive service-account credential resolution stays independent of
+    # this env var by design (see server/drive.py's own docstring) — this is
+    # only consulted as the first, explicit override in that chain.
+    drive_sa_json_env: str = "CARNYX_DRIVE_SA_JSON"
+
+
+@dataclass
 class RuntimeConfig:
     mode: Mode
     backend: Backend
@@ -106,6 +124,7 @@ class RuntimeConfig:
     local: LocalConfig = field(default_factory=LocalConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     summarization: SummarizationConfig = field(default_factory=SummarizationConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)
 
     def __post_init__(self) -> None:
         if self.backend == Backend.REMOTE and self.remote is None:
@@ -198,6 +217,17 @@ def _build_summarization_config(raw: dict[str, Any] | None) -> SummarizationConf
     )
 
 
+def _build_server_config(raw: dict[str, Any] | None) -> ServerConfig:
+    raw = raw or {}
+    defaults = ServerConfig()
+    return ServerConfig(
+        api_key_env=raw.get("api_key_env", defaults.api_key_env),
+        max_audio_bytes=raw.get("max_audio_bytes", defaults.max_audio_bytes),
+        download_timeout_s=raw.get("download_timeout_s", defaults.download_timeout_s),
+        drive_sa_json_env=raw.get("drive_sa_json_env", defaults.drive_sa_json_env),
+    )
+
+
 def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
     """The pure, testable core: dict in, RuntimeConfig out (or ConfigError).
 
@@ -217,6 +247,7 @@ def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
         local=_build_local_config(data.get("local")),
         chunking=_build_chunking_config(data.get("chunking")),
         summarization=_build_summarization_config(data.get("summarization")),
+        server=_build_server_config(data.get("server")),
     )
 
 
