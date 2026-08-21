@@ -1,0 +1,62 @@
+# tscribe.yaml — copy this file to tscribe.yaml and edit it.
+# See docs/units/01-config-schema-and-core-models.md for the full field
+# reference and docs/config-migration.md if you're translating an existing
+# tscribe-class-carnyx or tscribe-transcription-tool env-var deployment.
+
+# -----------------------------------------------------------------------
+# mode: what role this clone plays. Same clone, same entrypoint, different
+# config — there is no separate "server build" vs "client build".
+#   server — runs the HTTP API (ported from tscribe-class-carnyx). Use this
+#            on the machine that should accept /jobs requests.
+#   client — runs `tscribe transcribe`/`record`/`summarize`/`devices`
+#            locally, or talks to a remote server/inference endpoint,
+#            depending on `backend` below.
+# -----------------------------------------------------------------------
+mode: client
+
+# -----------------------------------------------------------------------
+# backend: where the actual whisper/LLM compute happens.
+#   local  — faster-whisper runs in-process on this machine. No network
+#            required. See the `local:` section below to tune it.
+#   remote — see the `remote:` section below; it has two sub-shapes
+#            (remote.kind) depending on what `remote.endpoint` actually is.
+# -----------------------------------------------------------------------
+backend: local
+
+# Only read when backend: remote. Omit this whole section for backend: local.
+# remote:
+#   endpoint: "http://100.89.168.11:6280/v1"
+#   # Name of an ENVIRONMENT VARIABLE holding the secret — never put the
+#   # actual key in this file. e.g. export LITELLM_API_KEY=... before running.
+#   api_key_env: "LITELLM_API_KEY"
+#   # Which of the two "remote" shapes this is:
+#   #   inference_endpoint (default) — a bare LiteLLM/whisper-compatible
+#   #     endpoint (e.g. carnyx's GPU host). tscribe runs its own pipeline
+#   #     in-process locally; only the whisper call goes over the network.
+#   #     This is what tscribe-class-carnyx does today.
+#   #   tscribe_server — another tscribe instance running mode: server.
+#   #     tscribe submits jobs via POST /jobs and polls GET /jobs/{id}
+#   #     instead of running the pipeline itself.
+#   kind: inference_endpoint
+#   # Only meaningful for kind: inference_endpoint. The whisper model name,
+#   # e.g. "Systran/faster-distil-whisper-large-v3". Leave unset to use
+#   # whatever the endpoint defaults to.
+#   transcription_model: null
+
+# Only used when backend: local (or as the fallback when a remote inference
+# call fails — see docs/units/02-transcription-core.md).
+local:
+  model_size: small       # tiny | base | small | medium | large
+  device: cpu              # cpu | cuda
+  compute_type: int8        # int8 | float16 | ...
+
+# How long-form audio gets split before parallel transcription.
+chunking:
+  minutes: 15
+  workers: 2
+  snap_window_s: 10         # snaps chunk boundaries to detected silence
+
+# Used by `tscribe summarize`.
+summarization:
+  model: lightweight
+  prompt: null               # null = use tscribe's built-in default prompt

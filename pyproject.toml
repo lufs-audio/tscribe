@@ -5,13 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "tscribe"
 version = "0.1.0"
-description = "A contract-first Python project"
+description = "Agent-first transcription primitive (client + server + bootstrap) — unifies tscribe-class-carnyx, tscribe-transcription-tool, and tscribe-capture-rig. See SPEC.md."
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
     { name = "Daniel Ramirez" }
 ]
-dependencies = []
+dependencies = [
+    "pyyaml>=6.0",
+]
 
 [project.scripts]
 tscribe = "tscribe.cli:main"
