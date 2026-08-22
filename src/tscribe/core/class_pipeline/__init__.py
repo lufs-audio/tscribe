@@ -17,16 +17,18 @@ that history is exactly why this port changes as little of the algorithm as
 possible.
 """
 
-from .splitter import ChunkSpec, plan_boundaries, split_audio, probe_duration
+from .pipeline import ClassResult, transcribe_class
+from .splitter import ChunkSpec, plan_boundaries, probe_duration, split_audio
 from .verify import (
     ADVISORY_PREFIX,
     Contract,
     ContractViolation,
     VerifyReport,
-    VerifyReport as Report,  # SPEC.md Unit 02 names it "Report"; alias, same type
     verify_run,
 )
-from .pipeline import transcribe_class, ClassResult
+from .verify import (
+    VerifyReport as Report,  # SPEC.md Unit 02 names it "Report"; alias, same type
+)
 
 __all__ = [
     "ChunkSpec",

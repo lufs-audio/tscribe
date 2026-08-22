@@ -17,7 +17,6 @@ from tscribe.config import (
     parse_config_dict,
 )
 
-
 # ---------------------------------------------------------------------------
 # parse_config_dict — pure validation logic, no filesystem involved
 # ---------------------------------------------------------------------------
@@ -127,9 +126,7 @@ def test_top_level_must_be_a_mapping():
 
 
 def test_partial_chunking_overrides_only_specified_fields():
-    cfg = parse_config_dict(
-        {"mode": "client", "backend": "local", "chunking": {"workers": 4}}
-    )
+    cfg = parse_config_dict({"mode": "client", "backend": "local", "chunking": {"workers": 4}})
     assert cfg.chunking.workers == 4
     assert cfg.chunking.minutes == 15  # default preserved
     assert cfg.chunking.snap_window_s == 10  # default preserved

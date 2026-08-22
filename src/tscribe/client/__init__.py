@@ -9,7 +9,8 @@ SPEC.md §10 Open Question #1 for why there are two "remote" client shapes.
 from tscribe.config import Backend, RemoteKind, RuntimeConfig
 
 from .base import AudioSource, ClientBase, JobHandle, JobResult, TscribeClient
-from .local import LocalClient, RemoteInferenceClient
+from .local import LocalClient
+from .remote_inference import RemoteInferenceClient
 from .remote_server import RemoteServerClient
 
 __all__ = [

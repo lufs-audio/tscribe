@@ -28,9 +28,23 @@ from tscribe.core.class_pipeline.pipeline import transcribe_class as real_transc
 
 def _make_recording(path: Path, seconds: int = 6) -> None:
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
-         f"sine=frequency=220:duration={seconds}", "-ac", "1", "-ar", "16000",
-         "-sample_fmt", "s16", str(path)],
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=220:duration={seconds}",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-sample_fmt",
+            "s16",
+            str(path),
+        ],
         check=True,
     )
 
@@ -44,7 +58,8 @@ def tone_wav(tmp_path):
 
 def _local_cfg() -> RuntimeConfig:
     return RuntimeConfig(
-        mode=Mode.CLIENT, backend=Backend.LOCAL,
+        mode=Mode.CLIENT,
+        backend=Backend.LOCAL,
         chunking=ChunkingConfig(minutes=10 / 60.0, snap_window_s=3.0, workers=1),
     )
 
@@ -71,7 +86,8 @@ class _DropsEverything:
 
 def test_local_client_submit_and_wait_returns_verified_result(tone_wav, monkeypatch):
     monkeypatch.setattr(
-        local_mod, "transcribe_class",
+        local_mod,
+        "transcribe_class",
         lambda input_path, output_path, cfg: real_transcribe_class(
             input_path, output_path, cfg, transcriber=_GoodTranscriber()
         ),
@@ -95,7 +111,8 @@ def test_local_client_keeps_evidence_on_contract_violation(tone_wav, monkeypatch
     silent-failure the contract exists to catch -- and the client must
     surface the transcript + report on the failure, not swallow them."""
     monkeypatch.setattr(
-        local_mod, "transcribe_class",
+        local_mod,
+        "transcribe_class",
         lambda input_path, output_path, cfg: real_transcribe_class(
             input_path, output_path, cfg, transcriber=_DropsEverything()
         ),
@@ -120,7 +137,10 @@ def test_report_to_dict_shape_matches_units_02_03():
     d = _report_to_dict(report)
     assert d == {
         "ok": False,
-        "checks": [{"name": "a", "ok": True, "detail": "fine"}, {"name": "b", "ok": False, "detail": "bad"}],
+        "checks": [
+            {"name": "a", "ok": True, "detail": "fine"},
+            {"name": "b", "ok": False, "detail": "bad"},
+        ],
         "failures": ["b"],
     }
 
@@ -131,7 +151,8 @@ def test_make_client_selects_local_for_backend_local():
 
 def test_make_client_selects_remote_inference_by_default():
     cfg = RuntimeConfig(
-        mode=Mode.CLIENT, backend=Backend.REMOTE,
+        mode=Mode.CLIENT,
+        backend=Backend.REMOTE,
         remote=RemoteConfig(endpoint="http://example.com", api_key_env="X"),
     )
     assert isinstance(make_client(cfg), RemoteInferenceClient)
@@ -141,7 +162,10 @@ def test_make_client_selects_remote_server_when_kind_is_tscribe_server():
     from tscribe.client import RemoteServerClient
 
     cfg = RuntimeConfig(
-        mode=Mode.CLIENT, backend=Backend.REMOTE,
-        remote=RemoteConfig(endpoint="http://example.com", api_key_env="X", kind=RemoteKind.TSCRIBE_SERVER),
+        mode=Mode.CLIENT,
+        backend=Backend.REMOTE,
+        remote=RemoteConfig(
+            endpoint="http://example.com", api_key_env="X", kind=RemoteKind.TSCRIBE_SERVER
+        ),
     )
     assert isinstance(make_client(cfg), RemoteServerClient)

@@ -12,7 +12,8 @@ override `transcriber_factory` with a mock — same pattern the source repo used
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from tscribe.config import RuntimeConfig
 

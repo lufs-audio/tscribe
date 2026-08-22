@@ -21,7 +21,6 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
 
 WAV_SR = 16000
 WAV_CHANNELS = 1
@@ -73,7 +72,7 @@ def detect_silences(
     path: str | Path,
     noise_db: float = -30.0,
     min_silence_s: float = 0.35,
-) -> List[Tuple[float, float]]:
+) -> list[tuple[float, float]]:
     """Return [(start_s, end_s), ...] silence intervals via ffmpeg silencedetect."""
     cp = _run(
         [
@@ -90,7 +89,7 @@ def detect_silences(
     text = cp.stderr  # silencedetect writes to stderr
     starts = [float(m) for m in re.findall(r"silence_start:\s*(-?[\d.]+)", text)]
     ends = [float(m) for m in re.findall(r"silence_end:\s*(-?[\d.]+)", text)]
-    intervals: List[Tuple[float, float]] = []
+    intervals: list[tuple[float, float]] = []
     for i, s in enumerate(starts):
         e = ends[i] if i < len(ends) else s + min_silence_s
         if e > s:
@@ -99,7 +98,7 @@ def detect_silences(
 
 
 def _nearest_silence_midpoint(
-    ideal: float, silences: List[Tuple[float, float]], window_s: float
+    ideal: float, silences: list[tuple[float, float]], window_s: float
 ) -> float:
     """Snap ``ideal`` to the midpoint of the closest silence within ``window_s``.
 
@@ -120,10 +119,10 @@ def _nearest_silence_midpoint(
 def plan_boundaries(
     total_s: float,
     chunk_s: float,
-    silences: List[Tuple[float, float]] | None = None,
+    silences: list[tuple[float, float]] | None = None,
     snap_window_s: float = 10.0,
     min_tail_s: float = 60.0,
-) -> List[Tuple[float, float]]:
+) -> list[tuple[float, float]]:
     """Deterministically plan non-overlapping (start, end) spans tiling [0, total_s].
 
     Interior cuts are snapped to the nearest silence within ``snap_window_s``.
@@ -181,7 +180,7 @@ def split_audio(
     snap_window_s: float = 10.0,
     silence_aware: bool = True,
     min_tail_s: float = 60.0,
-) -> List[ChunkSpec]:
+) -> list[ChunkSpec]:
     """Split ``input_path`` into 16k/mono/16-bit WAV chunks, cutting in pauses.
 
     Returns the chunk plan as a list of :class:`ChunkSpec`. Uses ffmpeg stream
@@ -200,7 +199,7 @@ def split_audio(
     silences = detect_silences(input_path) if silence_aware else []
     spans = plan_boundaries(total_s, chunk_s, silences, snap_window_s, min_tail_s)
 
-    chunks: List[ChunkSpec] = []
+    chunks: list[ChunkSpec] = []
     for i, (start_s, end_s) in enumerate(spans):
         chunk_path = out_dir / f"chunk_{i:04d}.wav"
         cp = _run(

@@ -30,7 +30,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Protocol
+from typing import Protocol
 
 from tscribe.config import RuntimeConfig
 
@@ -45,8 +45,8 @@ class TranscriberLike(Protocol):
 @dataclass
 class ClassResult:
     output_path: str
-    chunks: List[ChunkSpec]
-    chunk_texts: List[str]
+    chunks: list[ChunkSpec]
+    chunk_texts: list[str]
     transcript: str
     report: VerifyReport
     total_s: float
@@ -59,13 +59,13 @@ def _fmt_stamp(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{sec:02d}"
 
 
-def reassemble(chunks: List[ChunkSpec], texts: List[str], source: str) -> str:
+def reassemble(chunks: list[ChunkSpec], texts: list[str], source: str) -> str:
     """Concatenate chunk transcripts under real per-chunk timestamp headers.
 
     Headers use each chunk's actual start time (not an assumed N*chunk_minutes),
     so silence-snapped boundaries are reflected honestly.
     """
-    lines = [f"# Class Transcript", f"", f"**Source:** {source}", f""]
+    lines = ["# Class Transcript", "", f"**Source:** {source}", ""]
     for ch, txt in zip(sorted(chunks, key=lambda c: c.index), texts):
         lines.append(f"## [{_fmt_stamp(ch.start_s)}]")
         lines.append("")
@@ -79,11 +79,11 @@ def transcribe_class(
     output_path: str,
     cfg: RuntimeConfig,
     *,
-    transcriber: Optional[TranscriberLike] = None,
+    transcriber: TranscriberLike | None = None,
     silence_aware: bool = True,
-    contract: Optional[Contract] = None,
+    contract: Contract | None = None,
     keep_chunks: bool = False,
-    chunk_dir: Optional[str] = None,
+    chunk_dir: str | None = None,
 ) -> ClassResult:
     """Run the full verified pipeline. Raises ContractViolation if the result
     cannot be proven correct.
@@ -104,7 +104,8 @@ def transcribe_class(
 
     try:
         chunks = split_audio(
-            input_path, tmp_dir,
+            input_path,
+            tmp_dir,
             chunk_minutes=cfg.chunking.minutes,
             snap_window_s=cfg.chunking.snap_window_s,
             silence_aware=silence_aware,
@@ -112,10 +113,7 @@ def transcribe_class(
 
         texts: dict[int, str] = {}
         with ThreadPoolExecutor(max_workers=max(1, cfg.chunking.workers)) as pool:
-            futures = {
-                pool.submit(transcriber.transcribe, ch.path): ch.index
-                for ch in chunks
-            }
+            futures = {pool.submit(transcriber.transcribe, ch.path): ch.index for ch in chunks}
             for fut in as_completed(futures):
                 idx = futures[fut]
                 result = fut.result()  # let exceptions propagate -> hard fail

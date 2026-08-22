@@ -60,3 +60,51 @@ chunking:
 summarization:
   model: lightweight
   prompt: null               # null = use tscribe's built-in default prompt
+
+# -----------------------------------------------------------------------
+# capture: `tscribe capture start|verify|finalize` (ported from
+# tscribe-capture-rig; see docs/units/05-capture-integration.md). Retires
+# that rig's rig.conf (KEY=VALUE) — this section is now the only source of
+# truth for capture settings. Everything below has a sensible default;
+# override only what your rig actually needs.
+# -----------------------------------------------------------------------
+capture:
+  # Linux (PipeWire/Pulse): substring match against `pactl list sources
+  # short` used to pick the input device — see `tscribe capture start --list`.
+  mic_match: Tula
+  # Windows (DirectShow): exact device name. Substring auto-match is brittle
+  # on DirectShow, so this must be set explicitly — run
+  # `tscribe capture start --list` on the Windows box, then paste the name.
+  mic_name: ""
+
+  # Capture shape — tscribe.core ingests 16 kHz / mono / 16-bit; capture
+  # native, no resample.
+  sample_rate: 16000
+  channels: 1
+
+  # Segment length in seconds. 900 = 15 min, aligned to class-length breaks.
+  segment_seconds: 900
+
+  # Output directory for segmented WAVs (e.g. a mounted USB flash drive).
+  out_dir: class_audio
+
+  # duration_in_band tolerances, seconds: mid-run segment vs segment_seconds
+  # (duration_tolerance_segment_s), and the finalized concatenated file vs
+  # the measured wall-clock sum of its segments (duration_tolerance_final_s).
+  duration_tolerance_segment_s: 2.0
+  duration_tolerance_final_s: 5.0
+
+  # not_silence_floor thresholds, dBFS mean_volume (ffmpeg volumedetect).
+  # Quieter than silence_warn_db: WARN (gain/placement). Quieter than
+  # silence_fail_db: FAIL — dead capture (mic blocked/unplugged, or a
+  # Windows mic-privacy toggle silently denying the mic). These are
+  # conservative starting points — calibrate on the first real capture.
+  silence_warn_db: -50.0
+  silence_fail_db: -60.0
+
+  # Optional explicit ffmpeg/ffprobe binary paths. Leave null to resolve via
+  # FFMPEG/FFPROBE env vars, then PATH — same "zero PATH setup" order the
+  # source rig used, so a portable ffmpeg dropped next to a deployment still
+  # works with no shell configuration.
+  ffmpeg_bin: null
+  ffprobe_bin: null

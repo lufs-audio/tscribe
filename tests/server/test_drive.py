@@ -36,7 +36,9 @@ class FakeFiles:
     def get(self, **kwargs):
         self.rec.append(("get", kwargs))
         # move_file calls get(fields="parents") first
-        return FakeExec({"id": kwargs.get("fileId"), "parents": ["OLD_PARENT"], "name": "class.m4a"})
+        return FakeExec(
+            {"id": kwargs.get("fileId"), "parents": ["OLD_PARENT"], "name": "class.m4a"}
+        )
 
     def update(self, **kwargs):
         self.rec.append(("update", kwargs))

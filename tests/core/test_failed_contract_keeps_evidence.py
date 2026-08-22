@@ -27,17 +27,19 @@ import pytest
 
 from tscribe.config import Backend, ChunkingConfig, Mode, RuntimeConfig
 from tscribe.core.class_pipeline import ContractViolation, transcribe_class
-from tscribe.core.class_pipeline.verify import Contract, VerifyReport
-
+from tscribe.core.class_pipeline.verify import VerifyReport
 
 # Deterministic non-repetitive filler -- see test_class_pipeline.py for why.
-_VOCAB = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
-          "lima mike november oscar papa quebec romeo sierra tango uniform "
-          "victor whiskey xray yankee zulu").split()
+_VOCAB = (
+    "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
+    "lima mike november oscar papa quebec romeo sierra tango uniform "
+    "victor whiskey xray yankee zulu"
+).split()
 
 
 def _words(n: int, seed: int = 1234) -> str:
     import random
+
     rng = random.Random(seed)
     return " ".join(rng.choice(_VOCAB) for _ in range(n))
 
@@ -53,15 +55,43 @@ def _make_recording(path: Path) -> None:
     ]
     for f, out in segs:
         subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f,
-             "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", str(out)],
+            [
+                "ffmpeg",
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f,
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-sample_fmt",
+                "s16",
+                str(out),
+            ],
             check=True,
         )
     listfile = path.parent / "list.txt"
     listfile.write_text("".join(f"file '{out}'\n" for _, out in segs))
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
-         "-i", str(listfile), "-c", "copy", str(path)],
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(listfile),
+            "-c",
+            "copy",
+            str(path),
+        ],
         check=True,
     )
 
@@ -77,6 +107,7 @@ class DroppingTranscriber:
 
     def transcribe(self, audio_path: str):
         from tscribe.core.class_pipeline.splitter import probe_duration
+
         idx = self._seen
         self._seen += 1
         if idx == self.drop_index:
@@ -95,18 +126,22 @@ def recording(tmp_path):
 def _violation(recording, tmp_path):
     out = tmp_path / "out.md"
     cfg = RuntimeConfig(
-        mode=Mode.CLIENT, backend=Backend.LOCAL,
+        mode=Mode.CLIENT,
+        backend=Backend.LOCAL,
         chunking=ChunkingConfig(minutes=10 / 60.0, snap_window_s=3.0, workers=1),
     )
     with pytest.raises(ContractViolation) as exc:
         transcribe_class(
-            str(recording), str(out), cfg,
+            str(recording),
+            str(out),
+            cfg,
             transcriber=DroppingTranscriber(drop_index=0),
         )
     return exc.value, out
 
 
 # ------------------------------------------------------- the gate is unchanged
+
 
 def test_the_gate_still_closes(recording, tmp_path):
     err, out = _violation(recording, tmp_path)
@@ -115,6 +150,7 @@ def test_the_gate_still_closes(recording, tmp_path):
 
 
 # ------------------------------------------------------ the evidence survives
+
 
 def test_the_report_survives_the_failure(recording, tmp_path):
     err, _ = _violation(recording, tmp_path)
@@ -142,6 +178,7 @@ def test_the_failure_message_still_names_every_violation(recording, tmp_path):
 
 
 # ------------------------------- attaching evidence does not soften the verdict
+
 
 def test_raise_if_failed_still_raises_with_a_transcript_attached():
     report = VerifyReport()

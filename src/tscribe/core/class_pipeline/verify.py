@@ -40,11 +40,11 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence
 
-from .splitter import ChunkSpec, WAV_CHANNELS, WAV_SR, plan_boundaries
+from .splitter import WAV_CHANNELS, WAV_SR, ChunkSpec, plan_boundaries
 
 #: Marks a check that passed but carries a caveat worth surfacing. A reader can
 #: split "passed clean" from "passed, but read this" without parsing prose.
@@ -84,8 +84,8 @@ class ContractViolation(Exception):
         self,
         message: str,
         *,
-        report: "VerifyReport | None" = None,
-        transcript: Optional[str] = None,
+        report: VerifyReport | None = None,
+        transcript: str | None = None,
     ) -> None:
         super().__init__(message)
         self.report = report
@@ -101,19 +101,17 @@ class Check:
 
 @dataclass
 class VerifyReport:
-    checks: List[Check] = field(default_factory=list)
+    checks: list[Check] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return all(c.ok for c in self.checks)
 
     @property
-    def failures(self) -> List[Check]:
+    def failures(self) -> list[Check]:
         return [c for c in self.checks if not c.ok]
 
-    def add(
-        self, name: str, ok: bool, detail: str = "", fail_hint: str = ""
-    ) -> None:
+    def add(self, name: str, ok: bool, detail: str = "", fail_hint: str = "") -> None:
         """Record a check.
 
         ``detail`` must be a statement of the *measurement* that is true whether
@@ -134,7 +132,7 @@ class VerifyReport:
             detail = f"{detail} -- {fail_hint}" if detail else fail_hint
         self.checks.append(Check(name=name, ok=bool(ok), detail=detail))
 
-    def raise_if_failed(self, transcript: Optional[str] = None) -> "VerifyReport":
+    def raise_if_failed(self, transcript: str | None = None) -> VerifyReport:
         """Raise :class:`ContractViolation` if any check failed.
 
         ``transcript`` is attached to the exception so a caller can retain the
@@ -163,14 +161,14 @@ class Contract:
 
     sample_rate: int = WAV_SR
     channels: int = WAV_CHANNELS
-    duration_tolerance_s: float = 0.75          # sum(chunks) vs whole-file
-    coverage_tolerance_s: float = 0.05          # tiling gap/overlap (~1 frame)
-    silence_floor_db: float = -45.0             # below this, a chunk may be empty
-    speech_floor_db: float = -30.0              # below this, audio isn't speech
-    min_speech_s_for_rate: float = 60.0         # need this much speech to judge a rate
-    min_wpm_if_speech: float = 40.0             # floor, over detected speech time
-    max_wpm: float = 320.0                      # ceiling, over wall clock
-    implausible_speech_wpm: float = 400.0       # above this, the denominator is suspect
+    duration_tolerance_s: float = 0.75  # sum(chunks) vs whole-file
+    coverage_tolerance_s: float = 0.05  # tiling gap/overlap (~1 frame)
+    silence_floor_db: float = -45.0  # below this, a chunk may be empty
+    speech_floor_db: float = -30.0  # below this, audio isn't speech
+    min_speech_s_for_rate: float = 60.0  # need this much speech to judge a rate
+    min_wpm_if_speech: float = 40.0  # floor, over detected speech time
+    max_wpm: float = 320.0  # ceiling, over wall clock
+    implausible_speech_wpm: float = 400.0  # above this, the denominator is suspect
     #: Above this ratio of detected speech to wall clock, ``silencedetect`` found
     #: (essentially) no silence and has therefore discriminated nothing: the
     #: "speech time" denominator has collapsed into wall clock and the floor
@@ -178,7 +176,7 @@ class Contract:
     #: wrong. Real recordings sit far below this. A ratio at 1.0 is a failed
     #: measurement, not a talkative room. See :func:`assert_transcript_earned`.
     max_speech_fraction_for_floor: float = 0.98
-    min_chunks_for_yield_relation: int = 4      # need this many peers to compare
+    min_chunks_for_yield_relation: int = 4  # need this many peers to compare
     #: Outlier threshold for the cross-chunk yield relation, as a fraction of the
     #: cohort median. A genuinely starved chunk sits ~100x below its siblings,
     #: not a small multiple, so the threshold belongs in that gap rather than at
@@ -188,27 +186,39 @@ class Contract:
     #: Degeneracy: fraction of a chunk's tokens allowed to sit inside back-to-back
     #: repeated n-grams.
     max_loop_fraction: float = 0.05
-    loop_ngram: int = 4                         # window for the repeat detector
-    min_loop_runs: int = 3                      # back-to-back repeats before it counts
-    whole_vs_chunked_tolerance: float = 0.03    # 3% word-count drift, certify-time
+    loop_ngram: int = 4  # window for the repeat detector
+    min_loop_runs: int = 3  # back-to-back repeats before it counts
+    whole_vs_chunked_tolerance: float = 0.03  # 3% word-count drift, certify-time
 
 
 # --------------------------------------------------------------------------- #
 # Reusable assertion primitives — authors compose these, rarely hand-write.
 # --------------------------------------------------------------------------- #
 
-def _ffprobe_field(path: str, stream_entry: str) -> Optional[str]:
+
+def _ffprobe_field(path: str, stream_entry: str) -> str | None:
     cp = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a:0",
-         "-show_entries", stream_entry, "-of", "default=nw=1:nk=1", str(path)],
-        capture_output=True, text=True,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            stream_entry,
+            "-of",
+            "default=nw=1:nk=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
     )
     if cp.returncode != 0:
         return None
     return cp.stdout.strip() or None
 
 
-def _probe_duration(path: str) -> Optional[float]:
+def _probe_duration(path: str) -> float | None:
     val = _ffprobe_field(path, "format=duration")
     try:
         return float(val) if val is not None else None
@@ -216,12 +226,12 @@ def _probe_duration(path: str) -> Optional[float]:
         return None
 
 
-def _mean_volume_db(path: str) -> Optional[float]:
+def _mean_volume_db(path: str) -> float | None:
     """Mean volume of a chunk via ffmpeg volumedetect (stdlib-free RMS proxy)."""
     cp = subprocess.run(
-        [
-            "ffmpeg", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
-        capture_output=True, text=True,
+        ["ffmpeg", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
     )
     m = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", cp.stderr)
     return float(m.group(1)) if m else None
@@ -229,7 +239,7 @@ def _mean_volume_db(path: str) -> Optional[float]:
 
 def _chunk_levels(
     path: str, contract: Contract, min_silence_s: float = 0.35
-) -> tuple[Optional[float], Optional[float]]:
+) -> tuple[float | None, float | None]:
     """Return ``(mean_volume_db, speech_seconds)`` for a chunk in ONE decode pass.
 
     ``volumedetect`` answers "is there any audio here at all" (whole-chunk RMS);
@@ -260,11 +270,17 @@ def _chunk_levels(
     """
     cp = subprocess.run(
         [
-            "ffmpeg", "-i", str(path), "-af",
+            "ffmpeg",
+            "-i",
+            str(path),
+            "-af",
             f"volumedetect,silencedetect=noise={contract.speech_floor_db}dB:d={min_silence_s}",
-            "-f", "null", "-",
+            "-f",
+            "null",
+            "-",
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     err = cp.stderr
     m = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", err)
@@ -309,9 +325,9 @@ def _loop_coverage(text: str, n: int = 4, min_runs: int = 3) -> float:
     covered = [False] * len(toks)
     i = 0
     while i <= len(toks) - n:
-        gram = toks[i:i + n]
+        gram = toks[i : i + n]
         runs, j = 1, i + n
-        while j + n <= len(toks) and toks[j:j + n] == gram:
+        while j + n <= len(toks) and toks[j : j + n] == gram:
             runs += 1
             j += n
         if runs >= min_runs:
@@ -366,7 +382,8 @@ def assert_not_degenerate(
         report.add(f"{tag}.no_degenerate_output", True, measurement)
     elif speech_measure_saturated:
         report.add(
-            f"{tag}.no_degenerate_output", True,
+            f"{tag}.no_degenerate_output",
+            True,
             f"{ADVISORY_PREFIX}{measurement} -- the transcriber looped, but this "
             f"chunk's speech measure saturated, so the audio underneath is "
             f"continuous room sound with no individually intelligible speaker. "
@@ -375,10 +392,12 @@ def assert_not_degenerate(
         )
     else:
         report.add(
-            f"{tag}.no_degenerate_output", False, measurement,
+            f"{tag}.no_degenerate_output",
+            False,
+            measurement,
             fail_hint="the transcriber looped over audio whose speech measure is "
-                      "clean, so real speech was present and this stretch of the "
-                      "class was replaced with fabricated repetition",
+            "clean, so real speech was present and this stretch of the "
+            "class was replaced with fabricated repetition",
         )
     return coverage
 
@@ -386,19 +405,29 @@ def assert_not_degenerate(
 def assert_audio_valid(report: VerifyReport, chunk: ChunkSpec, contract: Contract) -> None:
     p = chunk.path
     exists = Path(p).exists() and Path(p).stat().st_size > 0
-    report.add(f"chunk[{chunk.index}].exists_nonempty", exists,
-               "" if exists else f"missing/empty: {p}")
+    report.add(
+        f"chunk[{chunk.index}].exists_nonempty", exists, "" if exists else f"missing/empty: {p}"
+    )
     if not exists:
         return
     sr = _ffprobe_field(p, "stream=sample_rate")
-    report.add(f"chunk[{chunk.index}].sample_rate", sr == str(contract.sample_rate),
-               f"got {sr}, want {contract.sample_rate}")
+    report.add(
+        f"chunk[{chunk.index}].sample_rate",
+        sr == str(contract.sample_rate),
+        f"got {sr}, want {contract.sample_rate}",
+    )
     ch = _ffprobe_field(p, "stream=channels")
-    report.add(f"chunk[{chunk.index}].channels", ch == str(contract.channels),
-               f"got {ch}, want {contract.channels}")
+    report.add(
+        f"chunk[{chunk.index}].channels",
+        ch == str(contract.channels),
+        f"got {ch}, want {contract.channels}",
+    )
     dur = _probe_duration(p)
-    report.add(f"chunk[{chunk.index}].decodes", dur is not None and dur > 0,
-               "did not decode" if not dur else "")
+    report.add(
+        f"chunk[{chunk.index}].decodes",
+        dur is not None and dur > 0,
+        "did not decode" if not dur else "",
+    )
 
 
 def assert_transcript_earned(
@@ -406,7 +435,7 @@ def assert_transcript_earned(
     chunk: ChunkSpec,
     text: str,
     contract: Contract,
-    levels: "tuple[Optional[float], Optional[float]] | None" = None,
+    levels: tuple[float | None, float | None] | None = None,
 ) -> str:
     """The critical silent-failure guard: a chunk that *had audio* must produce
     non-empty text, and at a plausible speaking rate.
@@ -461,30 +490,36 @@ def assert_transcript_earned(
 
     if not has_audio:
         # Silence: empty is acceptable, non-empty is fine too (don't penalize).
-        report.add(f"{tag}.silence_ok", True,
-                   f"silence ({mean_db} dB), empty transcript allowed")
+        report.add(f"{tag}.silence_ok", True, f"silence ({mean_db} dB), empty transcript allowed")
         return RATE_GUARD_SILENCE
 
-    report.add(f"{tag}.transcript_nonempty", wc > 0,
-               f"{wc} words, audio at {mean_db:.1f} dB",
-               fail_hint="audio was present but the transcript is empty")
+    report.add(
+        f"{tag}.transcript_nonempty",
+        wc > 0,
+        f"{wc} words, audio at {mean_db:.1f} dB",
+        fail_hint="audio was present but the transcript is empty",
+    )
     if wc == 0 or chunk.duration_s <= 0:
         return RATE_GUARD_NO_TEXT
 
     wpm_wall = wc / (chunk.duration_s / 60.0)
-    report.add(f"{tag}.wpm_under_ceiling", wpm_wall <= contract.max_wpm,
-               f"{wpm_wall:.0f} wpm over {chunk.duration_s:.0f}s wall clock",
-               fail_hint=f"exceeds {contract.max_wpm:.0f} wpm; looping or "
-                         f"garbled output")
+    report.add(
+        f"{tag}.wpm_under_ceiling",
+        wpm_wall <= contract.max_wpm,
+        f"{wpm_wall:.0f} wpm over {chunk.duration_s:.0f}s wall clock",
+        fail_hint=f"exceeds {contract.max_wpm:.0f} wpm; looping or garbled output",
+    )
 
     if speech_s is None:
         # Fail closed: if we cannot measure speech time we fall back to the old
         # wall-clock floor rather than waving the chunk through unchecked.
-        report.add(f"{tag}.wpm_above_floor",
-                   wpm_wall >= contract.min_wpm_if_speech,
-                   f"speech duration unmeasurable; fell back to wall clock: "
-                   f"{wpm_wall:.0f} wpm over {chunk.duration_s:.0f}s",
-                   fail_hint=f"below {contract.min_wpm_if_speech:.0f} wpm")
+        report.add(
+            f"{tag}.wpm_above_floor",
+            wpm_wall >= contract.min_wpm_if_speech,
+            f"speech duration unmeasurable; fell back to wall clock: "
+            f"{wpm_wall:.0f} wpm over {chunk.duration_s:.0f}s",
+            fail_hint=f"below {contract.min_wpm_if_speech:.0f} wpm",
+        )
         return RATE_GUARD_WALL_CLOCK_FALLBACK
 
     if speech_s >= contract.min_speech_s_for_rate:
@@ -495,7 +530,8 @@ def assert_transcript_earned(
             # its own to divide by. Abstain and say so, rather than re-run the
             # wall-clock floor under a name that implies it measured speech.
             report.add(
-                f"{tag}.speech_measure_saturated", True,
+                f"{tag}.speech_measure_saturated",
+                True,
                 f"{ADVISORY_PREFIX}no silence detected at "
                 f"{contract.speech_floor_db:.0f} dBFS anywhere in a "
                 f"{chunk.duration_s:.0f}s chunk, so detected speech "
@@ -511,28 +547,35 @@ def assert_transcript_earned(
             return RATE_GUARD_SATURATED
 
         wpm_speech = wc / (speech_s / 60.0)
-        report.add(f"{tag}.wpm_above_floor",
-                   wpm_speech >= contract.min_wpm_if_speech,
-                   f"{wpm_speech:.0f} wpm across {speech_s:.0f}s of detected speech "
-                   f"({wc} words in a {chunk.duration_s:.0f}s chunk)",
-                   fail_hint=f"below {contract.min_wpm_if_speech:.0f} wpm; "
-                             f"content likely dropped")
+        report.add(
+            f"{tag}.wpm_above_floor",
+            wpm_speech >= contract.min_wpm_if_speech,
+            f"{wpm_speech:.0f} wpm across {speech_s:.0f}s of detected speech "
+            f"({wc} words in a {chunk.duration_s:.0f}s chunk)",
+            fail_hint=f"below {contract.min_wpm_if_speech:.0f} wpm; content likely dropped",
+        )
         if wpm_speech > contract.implausible_speech_wpm:
             # Nobody talks this fast, so the denominator -- not the transcript --
             # is what's wrong: level-thresholded silence detection missed quiet
             # speech. Say so, rather than banking a pass this check didn't earn.
             # Deliberately non-fatal: the transcript may be perfectly fine. The
             # cross-chunk yield relation is what still has teeth here.
-            report.add(f"{tag}.speech_measure_unreliable", True,
-                       f"{ADVISORY_PREFIX}{wpm_speech:.0f} wpm exceeds "
-                       f"{contract.implausible_speech_wpm:.0f} -- only {speech_s:.0f}s "
-                       f"of speech detected in a {chunk.duration_s:.0f}s chunk yielding "
-                       f"{wc} words, so the speech floor is weak for this chunk")
+            report.add(
+                f"{tag}.speech_measure_unreliable",
+                True,
+                f"{ADVISORY_PREFIX}{wpm_speech:.0f} wpm exceeds "
+                f"{contract.implausible_speech_wpm:.0f} -- only {speech_s:.0f}s "
+                f"of speech detected in a {chunk.duration_s:.0f}s chunk yielding "
+                f"{wc} words, so the speech floor is weak for this chunk",
+            )
         return RATE_GUARD_FLOOR_APPLIED
 
-    report.add(f"{tag}.sparse_speech_ok", True,
-               f"only {speech_s:.0f}s of speech in a {chunk.duration_s:.0f}s chunk "
-               f"({wc} words) -- speaking-rate floor not applicable")
+    report.add(
+        f"{tag}.sparse_speech_ok",
+        True,
+        f"only {speech_s:.0f}s of speech in a {chunk.duration_s:.0f}s chunk "
+        f"({wc} words) -- speaking-rate floor not applicable",
+    )
     return RATE_GUARD_SPARSE
 
 
@@ -549,10 +592,13 @@ def _yield_cohort(
     too small to establish a median).
     """
     if len(ratios) < contract.min_chunks_for_yield_relation:
-        report.add(check_name, True,
-                   f"only {len(ratios)} chunk(s) carry enough speech to compare "
-                   f"(need {contract.min_chunks_for_yield_relation}) -- relation "
-                   f"not applicable")
+        report.add(
+            check_name,
+            True,
+            f"only {len(ratios)} chunk(s) carry enough speech to compare "
+            f"(need {contract.min_chunks_for_yield_relation}) -- relation "
+            f"not applicable",
+        )
         return set()
 
     vals = sorted(ratios.values())
@@ -562,12 +608,13 @@ def _yield_cohort(
     low = {i: r for i, r in ratios.items() if r < threshold}
 
     report.add(
-        check_name, not low,
+        check_name,
+        not low,
         f"median {median:.2f} words per second of speech across {n} chunks "
         f"({what}; outlier threshold {threshold:.2f})",
         fail_hint="chunk(s) far below their siblings: "
-                  + ", ".join(f"chunk[{i}] at {r:.2f}" for i, r in sorted(low.items()))
-                  + " -- content likely dropped",
+        + ", ".join(f"chunk[{i}] at {r:.2f}" for i, r in sorted(low.items()))
+        + " -- content likely dropped",
     )
     return set(ratios)
 
@@ -621,16 +668,16 @@ def assert_speech_yield_consistent(
         if not speech_s or speech_s < contract.min_speech_s_for_rate:
             continue
         ratio = word_count(txt) / speech_s
-        if (
-            ch.duration_s > 0
-            and speech_s / ch.duration_s >= contract.max_speech_fraction_for_floor
-        ):
+        if ch.duration_s > 0 and speech_s / ch.duration_s >= contract.max_speech_fraction_for_floor:
             saturated[ch.index] = ratio
         else:
             measured[ch.index] = ratio
 
     judged = _yield_cohort(
-        report, "speech_yield.consistent", measured, contract,
+        report,
+        "speech_yield.consistent",
+        measured,
+        contract,
         "speech time measured",
     )
     if saturated:
@@ -638,7 +685,10 @@ def assert_speech_yield_consistent(
         # an ordinary class's report doesn't grow a row about a situation it never
         # encountered.
         judged |= _yield_cohort(
-            report, "speech_yield.consistent_saturated", saturated, contract,
+            report,
+            "speech_yield.consistent_saturated",
+            saturated,
+            contract,
             "speech measure saturated, so this is words per second of wall clock",
         )
     return judged
@@ -647,7 +697,7 @@ def assert_speech_yield_consistent(
 def assert_rate_guard_coverage(
     report: VerifyReport,
     saturated_indices: Sequence[int],
-    judged_by_relation: "set | Sequence[int]",
+    judged_by_relation: set | Sequence[int],
     floor_applied_indices: Sequence[int],
     contract: Contract,
 ) -> None:
@@ -675,8 +725,9 @@ def assert_rate_guard_coverage(
     what was proven rather than merely leave a gap in it.
     """
     if not saturated_indices:
-        report.add("rate_guard.coverage", True,
-                   "speaking-rate floor applied wherever it was applicable")
+        report.add(
+            "rate_guard.coverage", True, "speaking-rate floor applied wherever it was applicable"
+        )
         return
 
     judged = set(judged_by_relation)
@@ -684,23 +735,27 @@ def assert_rate_guard_coverage(
     unproven = sorted(set(saturated_indices) - judged)
 
     if not unproven:
-        report.add("rate_guard.coverage", True,
-                   f"{ADVISORY_PREFIX}speaking-rate floor abstained on {listed} "
-                   f"(saturated speech measure); every one of them was judged "
-                   f"instead by the cross-chunk yield relation")
+        report.add(
+            "rate_guard.coverage",
+            True,
+            f"{ADVISORY_PREFIX}speaking-rate floor abstained on {listed} "
+            f"(saturated speech measure); every one of them was judged "
+            f"instead by the cross-chunk yield relation",
+        )
         return
 
     unproven_listed = ", ".join(f"chunk[{i}]" for i in unproven)
     nothing_checked = not judged and not list(floor_applied_indices)
     report.add(
-        "rate_guard.coverage", not nothing_checked,
+        "rate_guard.coverage",
+        not nothing_checked,
         f"{'' if nothing_checked else ADVISORY_PREFIX}"
         f"speaking-rate floor abstained on {listed} (saturated speech measure) "
         f"and the cross-chunk relation had no quorum for {unproven_listed}, so "
         f"no speaking-rate check covered {'it' if len(unproven) == 1 else 'them'} "
         f"-- the rest of the contract still applies there",
         fail_hint="and no chunk anywhere in this recording received a "
-                  "speaking-rate check, so the rate contract proved nothing at all",
+        "speaking-rate check, so the rate contract proved nothing at all",
     )
 
 
@@ -712,8 +767,9 @@ def assert_coverage(
     ok_start = abs(ordered[0].start_s) <= contract.coverage_tolerance_s
     report.add("coverage.starts_at_zero", ok_start, f"first start={ordered[0].start_s}")
     ok_end = abs(ordered[-1].end_s - total_s) <= contract.coverage_tolerance_s
-    report.add("coverage.ends_at_total", ok_end,
-               f"last end={ordered[-1].end_s}, total={total_s:.3f}")
+    report.add(
+        "coverage.ends_at_total", ok_end, f"last end={ordered[-1].end_s}, total={total_s:.3f}"
+    )
     contiguous = True
     detail = ""
     for a, b in zip(ordered, ordered[1:]):
@@ -731,14 +787,20 @@ def assert_reassembly_lossless(
     """No words may be dropped or duplicated when concatenating chunks."""
     expected = sum(word_count(t) for t in chunk_texts)
     got = word_count(assembled_body)
-    report.add("reassembly.word_count_conserved", expected == got,
-               f"sum(chunks)={expected} but assembled body={got}")
+    report.add(
+        "reassembly.word_count_conserved",
+        expected == got,
+        f"sum(chunks)={expected} but assembled body={got}",
+    )
 
 
 def assert_headers_monotonic(report: VerifyReport, assembled: str, n_chunks: int) -> None:
     stamps = re.findall(r"^##\s*\[(\d{2}):(\d{2}):(\d{2})\]", assembled, re.MULTILINE)
-    report.add("headers.count", len(stamps) == n_chunks,
-               f"found {len(stamps)} headers, expected {n_chunks}")
+    report.add(
+        "headers.count",
+        len(stamps) == n_chunks,
+        f"found {len(stamps)} headers, expected {n_chunks}",
+    )
     secs = [int(h) * 3600 + int(m) * 60 + int(s) for h, m, s in stamps]
     report.add("headers.monotonic", secs == sorted(secs), f"non-monotonic: {secs}")
 
@@ -746,6 +808,7 @@ def assert_headers_monotonic(report: VerifyReport, assembled: str, n_chunks: int
 # --------------------------------------------------------------------------- #
 # Per-execution verification entrypoint
 # --------------------------------------------------------------------------- #
+
 
 def verify_run(
     *,
@@ -771,8 +834,8 @@ def verify_run(
     ordered = sorted(chunks, key=lambda c: c.index)
     levels = {ch.index: _chunk_levels(ch.path, contract) for ch in ordered}
 
-    saturated: List[int] = []
-    floor_applied: List[int] = []
+    saturated: list[int] = []
+    floor_applied: list[int] = []
     for ch, txt in zip(ordered, chunk_texts):
         assert_audio_valid(report, ch, contract)
         outcome = assert_transcript_earned(report, ch, txt, contract, levels=levels[ch.index])
@@ -784,7 +847,10 @@ def verify_run(
         # diagnosis; whether it is fatal depends on what the audio underneath
         # actually was, which the rate guard has just told us.
         assert_not_degenerate(
-            report, ch, txt, contract,
+            report,
+            ch,
+            txt,
+            contract,
             speech_measure_saturated=(outcome == RATE_GUARD_SATURATED),
         )
 
@@ -797,9 +863,11 @@ def verify_run(
 
     # Sum of chunk durations should equal the whole file (no time lost).
     summed = sum(c.duration_s for c in chunks)
-    report.add("duration.preserved",
-               abs(summed - total_s) <= contract.duration_tolerance_s,
-               f"sum(chunks)={summed:.3f}s vs whole={total_s:.3f}s")
+    report.add(
+        "duration.preserved",
+        abs(summed - total_s) <= contract.duration_tolerance_s,
+        f"sum(chunks)={summed:.3f}s vs whole={total_s:.3f}s",
+    )
 
     # Reassembly integrity: count only transcript body words, excluding the
     # structural scaffolding -- markdown headers (^#...) and bold-metadata lines
@@ -814,6 +882,7 @@ def verify_run(
 # --------------------------------------------------------------------------- #
 # Metamorphic relations (invariants, not exact outputs)
 # --------------------------------------------------------------------------- #
+
 
 def metamorphic_split_deterministic(
     total_s: float, chunk_s: float, silences, snap_window_s: float = 10.0
@@ -834,5 +903,8 @@ def metamorphic_whole_vs_chunked(
         return Check("metamorphic.whole_vs_chunked", False, "whole-file word count is 0")
     drift = abs(whole_words - chunked_words) / max(whole_words, chunked_words)
     ok = drift <= contract.whole_vs_chunked_tolerance
-    return Check("metamorphic.whole_vs_chunked", ok,
-                 f"drift {drift*100:.2f}% (tol {contract.whole_vs_chunked_tolerance*100:.0f}%)")
+    return Check(
+        "metamorphic.whole_vs_chunked",
+        ok,
+        f"drift {drift * 100:.2f}% (tol {contract.whole_vs_chunked_tolerance * 100:.0f}%)",
+    )

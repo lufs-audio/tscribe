@@ -47,8 +47,8 @@ import socket
 import ssl
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
@@ -88,8 +88,7 @@ def _credentials_path() -> str:
     if matches:
         return matches[0]
     raise RuntimeError(
-        "No service-account JSON found. Set CARNYX_DRIVE_SA_JSON or drop the key "
-        "in ./credentials/."
+        "No service-account JSON found. Set CARNYX_DRIVE_SA_JSON or drop the key in ./credentials/."
     )
 
 
@@ -142,7 +141,7 @@ def _execute_resilient(
     — which is what actually clears a half-open socket left by a multi-hour job.
     Non-retryable errors (bad request, 404, auth) propagate immediately.
     """
-    last: Optional[BaseException] = None
+    last: BaseException | None = None
     for attempt in range(1, attempts + 1):
         try:
             return make_request().execute()
@@ -158,13 +157,15 @@ def _execute_resilient(
 
 def get_metadata(file_id: str) -> dict:
     return _execute_resilient(
-        lambda: get_service()
-        .files()
-        .get(fileId=file_id, fields="id,name,mimeType,size,parents", supportsAllDrives=True)
+        lambda: (
+            get_service()
+            .files()
+            .get(fileId=file_id, fields="id,name,mimeType,size,parents", supportsAllDrives=True)
+        )
     )
 
 
-def download_file(file_id: str, dest: str | Path, max_bytes: Optional[int] = None) -> Path:
+def download_file(file_id: str, dest: str | Path, max_bytes: int | None = None) -> Path:
     """Stream a file's bytes to `dest` via the Drive API (works for any size,
     no public link / interstitial needed). Runs at job start on a fresh
     connection; a transient blip restarts the whole download from zero."""
@@ -184,7 +185,7 @@ def download_file(file_id: str, dest: str | Path, max_bytes: Optional[int] = Non
                     raise ValueError("audio exceeds max_audio_bytes")
         return dest
 
-    last: Optional[BaseException] = None
+    last: BaseException | None = None
     for attempt in range(1, _RETRY_ATTEMPTS + 1):
         try:
             return _attempt()
@@ -228,9 +229,11 @@ def upload_text(name: str, text: str, parent_id: str, mime: str = "text/markdown
 def create_folder(name: str, parent_id: str) -> dict:
     body = {"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]}
     return _execute_resilient(
-        lambda: get_service()
-        .files()
-        .create(body=body, fields="id,name,parents", supportsAllDrives=True)
+        lambda: (
+            get_service()
+            .files()
+            .create(body=body, fields="id,name,parents", supportsAllDrives=True)
+        )
     )
 
 
@@ -240,15 +243,17 @@ def list_folder(parent_id: str, page_size: int = 100) -> list[dict]:
     token = None
     while True:
         resp = _execute_resilient(
-            lambda token=token: get_service()
-            .files()
-            .list(
-                q=q,
-                fields="nextPageToken, files(id,name,mimeType,size)",
-                pageSize=page_size,
-                pageToken=token,
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
+            lambda token=token: (
+                get_service()
+                .files()
+                .list(
+                    q=q,
+                    fields="nextPageToken, files(id,name,mimeType,size)",
+                    pageSize=page_size,
+                    pageToken=token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                )
             )
         )
         out.extend(resp.get("files", []))
@@ -261,20 +266,20 @@ def move_file(file_id: str, new_parent_id: str) -> dict:
     """Reparent a file (add new parent, remove old). Non-destructive: the file
     is moved, never copied or deleted."""
     meta = _execute_resilient(
-        lambda: get_service()
-        .files()
-        .get(fileId=file_id, fields="parents", supportsAllDrives=True)
+        lambda: get_service().files().get(fileId=file_id, fields="parents", supportsAllDrives=True)
     )
     prev_parents = ",".join(meta.get("parents", []))
     return _execute_resilient(
-        lambda: get_service()
-        .files()
-        .update(
-            fileId=file_id,
-            addParents=new_parent_id,
-            removeParents=prev_parents,
-            fields="id,parents",
-            supportsAllDrives=True,
+        lambda: (
+            get_service()
+            .files()
+            .update(
+                fileId=file_id,
+                addParents=new_parent_id,
+                removeParents=prev_parents,
+                fields="id,parents",
+                supportsAllDrives=True,
+            )
         )
     )
 
@@ -282,7 +287,9 @@ def move_file(file_id: str, new_parent_id: str) -> dict:
 def trash_file(file_id: str) -> dict:
     """Recoverable removal. We never hard-delete originals."""
     return _execute_resilient(
-        lambda: get_service()
-        .files()
-        .update(fileId=file_id, body={"trashed": True}, supportsAllDrives=True)
+        lambda: (
+            get_service()
+            .files()
+            .update(fileId=file_id, body={"trashed": True}, supportsAllDrives=True)
+        )
     )

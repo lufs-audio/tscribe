@@ -1,10 +1,13 @@
-"""LocalClient and RemoteInferenceClient — the two in-process client modes.
+"""LocalClient — backend: local, the simplest of the three client shapes.
 
-Both run tscribe.core.class_pipeline.transcribe_class directly in this
-process (no HTTP, no job queue); the choice of `backend: local` vs
-`backend: remote` (kind: inference_endpoint) lives entirely in the
-RuntimeConfig they're constructed with and is resolved inside Unit 02's
-Transcriber. See base.py for why they share an implementation.
+Runs tscribe.core.class_pipeline.transcribe_class directly in this process
+(no HTTP, no job queue). The shared machinery for "run the pipeline
+in-process and cache the result against a handle" lives in _InProcessClient
+below because RemoteInferenceClient (remote_inference.py) needs the exact
+same machinery — the only difference between the two is which RuntimeConfig
+they're constructed with, and that distinction is resolved inside Unit 02's
+Transcriber, not here. See base.py's module docstring for why they are kept
+as separate, named classes rather than one class doing both.
 
 Since transcribe_class is itself synchronous, `submit()` here runs the whole
 job before returning — there's no separate "poll until done" the way
@@ -34,6 +37,13 @@ def _report_to_dict(report) -> dict:
 
 
 class _InProcessClient(ClientBase):
+    """Shared submit/poll machinery for the two client shapes that run
+    Unit 02's pipeline in this process rather than talking HTTP to a job
+    queue. Imported by both local.py (LocalClient) and remote_inference.py
+    (RemoteInferenceClient) — see each module's docstring for what, if
+    anything, it adds on top of this.
+    """
+
     def __init__(self, cfg: RuntimeConfig) -> None:
         self.cfg = cfg
         self._results: dict[str, JobResult] = {}
@@ -74,8 +84,3 @@ class _InProcessClient(ClientBase):
 
 class LocalClient(_InProcessClient):
     """backend: local — calls Unit 02 in-process, no network."""
-
-
-class RemoteInferenceClient(_InProcessClient):
-    """backend: remote, endpoint is a bare inference endpoint — Unit 02 runs
-    in-process here; only the whisper call inside it goes over the network."""

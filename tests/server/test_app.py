@@ -21,7 +21,6 @@ from __future__ import annotations
 import os
 import subprocess
 import time
-from pathlib import Path
 
 import pytest
 
@@ -42,21 +41,25 @@ client = TestClient(app)
 # back-to-back repetition, which the pipeline's degeneracy check correctly reads
 # as a transcriber loop. Synthetic text standing in for speech has to look like
 # speech in the ways the contract measures.
-_VOCAB = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
-          "lima mike november oscar papa quebec romeo sierra tango uniform "
-          "victor whiskey xray yankee zulu").split()
+_VOCAB = (
+    "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
+    "lima mike november oscar papa quebec romeo sierra tango uniform "
+    "victor whiskey xray yankee zulu"
+).split()
 
 
 def _words(n: int, seed: int = 1234) -> str:
     import random
+
     rng = random.Random(seed)
     return " ".join(rng.choice(_VOCAB) for _ in range(n))
 
 
 class MockTranscriber:
     def transcribe(self, audio_path: str):
-        from tscribe.core.class_pipeline.verify import _mean_volume_db
         from tscribe.core.class_pipeline.splitter import probe_duration
+        from tscribe.core.class_pipeline.verify import _mean_volume_db
+
         if (_mean_volume_db(audio_path) or -99) <= -45.0:
             return "", None
         dur = probe_duration(audio_path)
@@ -75,9 +78,23 @@ def mock_transcriber():
 def tone_wav(tmp_path):
     p = tmp_path / "tone.wav"
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
-         "sine=frequency=220:duration=6", "-ac", "1", "-ar", "16000",
-         "-sample_fmt", "s16", str(p)],
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=220:duration=6",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-sample_fmt",
+            "s16",
+            str(p),
+        ],
         check=True,
     )
     return p
@@ -129,6 +146,7 @@ def test_version_never_500s_when_provenance_is_unavailable(monkeypatch):
     """A build-info route that can fail is a route that pages you at 2am for
     nothing. Missing keys, never an exception."""
     from tscribe.server import app as app_module
+
     app_module.pipeline_build.cache_clear()
     monkeypatch.setattr(app_module, "json", None)  # break provenance lookup hard
     try:
@@ -147,8 +165,11 @@ def test_auth_required(tone_wav):
 
 def test_upload_job_is_verified(tone_wav):
     with open(tone_wav, "rb") as f:
-        r = client.post("/jobs/upload", headers={"X-API-Key": "test-key"},
-                        files={"file": ("tone.wav", f, "audio/wav")})
+        r = client.post(
+            "/jobs/upload",
+            headers={"X-API-Key": "test-key"},
+            files={"file": ("tone.wav", f, "audio/wav")},
+        )
     assert r.status_code == 200
     result = _wait(r.json()["id"])
     assert result["status"] == "done", result.get("error")
@@ -159,9 +180,13 @@ def test_upload_job_is_verified(tone_wav):
 def test_audio_url_pull_path(tone_wav, monkeypatch):
     # remote-URL branch: stub the download to copy the local fixture.
     import shutil
+
     monkeypatch.setattr(jobs, "_download_url", lambda url, dest, cfg: shutil.copy(tone_wav, dest))
-    r = client.post("/jobs", headers={"X-API-Key": "test-key"},
-                    json={"audio_url": "https://example.com/tone.wav"})
+    r = client.post(
+        "/jobs",
+        headers={"X-API-Key": "test-key"},
+        json={"audio_url": "https://example.com/tone.wav"},
+    )
     assert r.status_code == 200
     result = _wait(r.json()["id"])
     assert result["status"] == "done", result.get("error")
@@ -178,6 +203,7 @@ def test_grouping_skip_logged_when_writeback_fails(tone_wav, monkeypatch):
     move is never even attempted.
     """
     import shutil
+
     from tscribe.server import drive as drive_mod
 
     monkeypatch.setattr(jobs, "_download_url", lambda url, dest, cfg: shutil.copy(tone_wav, dest))

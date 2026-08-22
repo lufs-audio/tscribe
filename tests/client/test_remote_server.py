@@ -32,8 +32,11 @@ class _FakeResponse:
 
 def _cfg(endpoint="http://tscribe.example.com", api_key_env="TSCRIBE_TEST_KEY") -> RuntimeConfig:
     return RuntimeConfig(
-        mode=Mode.CLIENT, backend=Backend.REMOTE,
-        remote=RemoteConfig(endpoint=endpoint, api_key_env=api_key_env, kind=RemoteKind.TSCRIBE_SERVER),
+        mode=Mode.CLIENT,
+        backend=Backend.REMOTE,
+        remote=RemoteConfig(
+            endpoint=endpoint, api_key_env=api_key_env, kind=RemoteKind.TSCRIBE_SERVER
+        ),
     )
 
 
@@ -73,13 +76,23 @@ def test_poll_gets_jobs_id_and_maps_the_full_contract_shape(monkeypatch):
     def fake_get(url, headers=None, timeout=None):
         assert url == "http://tscribe.example.com/jobs/job-abc"
         assert headers == {"X-API-Key": "secret-123"}
-        return _FakeResponse({
-            "id": "job-abc", "status": "done", "verified": True, "source": "upload",
-            "created_at": 1.0, "updated_at": 2.0,
-            "transcript": "# Class Transcript\n...", "report": {"ok": True, "checks": [], "failures": []},
-            "error": None, "transcript_file_id": None, "upload_error": None,
-            "moved": [], "move_errors": [],
-        })
+        return _FakeResponse(
+            {
+                "id": "job-abc",
+                "status": "done",
+                "verified": True,
+                "source": "upload",
+                "created_at": 1.0,
+                "updated_at": 2.0,
+                "transcript": "# Class Transcript\n...",
+                "report": {"ok": True, "checks": [], "failures": []},
+                "error": None,
+                "transcript_file_id": None,
+                "upload_error": None,
+                "moved": [],
+                "move_errors": [],
+            }
+        )
 
     monkeypatch.setattr(remote_server_mod.requests, "get", fake_get)
 
@@ -98,13 +111,23 @@ def test_poll_surfaces_failed_jobs_with_evidence_intact(monkeypatch):
     os.environ["TSCRIBE_TEST_KEY"] = "secret-123"
 
     def fake_get(url, headers=None, timeout=None):
-        return _FakeResponse({
-            "id": "job-xyz", "status": "failed", "verified": False, "source": "upload",
-            "created_at": 1.0, "updated_at": 2.0,
-            "transcript": "partial transcript", "report": {"ok": False, "checks": [], "failures": ["chunk[0].transcript_nonempty"]},
-            "error": "ContractViolation: 1 contract check(s) failed",
-            "transcript_file_id": None, "upload_error": None, "moved": [], "move_errors": [],
-        })
+        return _FakeResponse(
+            {
+                "id": "job-xyz",
+                "status": "failed",
+                "verified": False,
+                "source": "upload",
+                "created_at": 1.0,
+                "updated_at": 2.0,
+                "transcript": "partial transcript",
+                "report": {"ok": False, "checks": [], "failures": ["chunk[0].transcript_nonempty"]},
+                "error": "ContractViolation: 1 contract check(s) failed",
+                "transcript_file_id": None,
+                "upload_error": None,
+                "moved": [],
+                "move_errors": [],
+            }
+        )
 
     monkeypatch.setattr(remote_server_mod.requests, "get", fake_get)
 
@@ -123,7 +146,8 @@ def test_submit_and_wait_polls_until_terminal(monkeypatch, tmp_path):
     audio.write_bytes(b"fake")
 
     monkeypatch.setattr(
-        remote_server_mod.requests, "post",
+        remote_server_mod.requests,
+        "post",
         lambda *a, **k: _FakeResponse({"id": "job-poll", "status": "queued"}),
     )
 
@@ -132,14 +156,23 @@ def test_submit_and_wait_polls_until_terminal(monkeypatch, tmp_path):
     def fake_get(url, headers=None, timeout=None):
         call_count["n"] += 1
         status = "running" if call_count["n"] < 3 else "done"
-        return _FakeResponse({
-            "id": "job-poll", "status": status, "verified": status == "done",
-            "source": "upload", "created_at": 1.0, "updated_at": 2.0,
-            "transcript": "done text" if status == "done" else None,
-            "report": {"ok": True, "checks": [], "failures": []} if status == "done" else None,
-            "error": None, "transcript_file_id": None, "upload_error": None,
-            "moved": [], "move_errors": [],
-        })
+        return _FakeResponse(
+            {
+                "id": "job-poll",
+                "status": status,
+                "verified": status == "done",
+                "source": "upload",
+                "created_at": 1.0,
+                "updated_at": 2.0,
+                "transcript": "done text" if status == "done" else None,
+                "report": {"ok": True, "checks": [], "failures": []} if status == "done" else None,
+                "error": None,
+                "transcript_file_id": None,
+                "upload_error": None,
+                "moved": [],
+                "move_errors": [],
+            }
+        )
 
     monkeypatch.setattr(remote_server_mod.requests, "get", fake_get)
 

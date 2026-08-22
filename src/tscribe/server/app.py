@@ -39,7 +39,6 @@ import json
 import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -51,12 +50,12 @@ from . import jobs
 
 class JobRequest(BaseModel):
     # Audio source — provide exactly one of these two:
-    drive_file_id: Optional[str] = None   # preferred: service-account download
-    audio_url: Optional[str] = None       # public-link pull (sub-100 MB)
+    drive_file_id: str | None = None  # preferred: service-account download
+    audio_url: str | None = None  # public-link pull (sub-100 MB)
     # Optional Drive write-back:
-    dest_folder_id: Optional[str] = None  # where to write the verified transcript
-    move_file_ids: Optional[List[str]] = None  # source assets to group into dest_folder_id
-    source_name: Optional[str] = None     # filename to use for the audio / transcript stem
+    dest_folder_id: str | None = None  # where to write the verified transcript
+    move_file_ids: list[str] | None = None  # source assets to group into dest_folder_id
+    source_name: str | None = None  # filename to use for the audio / transcript stem
 
 
 @lru_cache(maxsize=1)
@@ -113,7 +112,7 @@ def create_app(cfg: RuntimeConfig) -> FastAPI:
     app = FastAPI(title="tscribe", version="0.1.0")
     api_key = os.environ.get(cfg.server.api_key_env, "")
 
-    def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
+    def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         # If no key is configured, refuse rather than run open (fail closed).
         if not api_key:
             raise HTTPException(status_code=503, detail="server API key not configured")

@@ -11,7 +11,7 @@ repo's source to find the mapping.
 
 | Source | Env var | `tscribe.yaml` field | Notes |
 |---|---|---|---|
-| carnyx | `TSCRIBE_API_KEY` | *(not yet modeled — Unit 03 server-mode auth)* | Server-mode API key; Unit 01 only models the *client-side* `remote.api_key_env` pointer today. Unit 03 will document the server-side equivalent when it lands. |
+| carnyx | `TSCRIBE_API_KEY` | `server.api_key_env` (name of the var, not the value; defaults to `TSCRIBE_API_KEY` so an unmigrated deployment needs no config change) | Server-mode API key, modeled in Unit 03 alongside the rest of `ServerConfig`. Distinct from the *client-side* `remote.api_key_env` pointer, which is a separate field for the opposite direction (this process calling out to a remote endpoint). |
 | carnyx, transcription-tool | `LITELLM_BASE_URL` | `remote.endpoint` | |
 | carnyx, transcription-tool | `LITELLM_API_KEY` | `remote.api_key_env` (name of the var, not the value) | |
 | carnyx, transcription-tool | `TRANSCRIPTION_MODEL` | `remote.transcription_model` | |
@@ -19,9 +19,11 @@ repo's source to find the mapping.
 | carnyx | `TSCRIBE_CHUNK_MINUTES` | `chunking.minutes` | |
 | carnyx | `TSCRIBE_WORKERS` | `chunking.workers` | |
 | carnyx | `TSCRIBE_SNAP_WINDOW_S` | `chunking.snap_window_s` | |
-| carnyx | `TSCRIBE_MAX_AUDIO_BYTES` | *(not yet modeled)* | Server-mode upload guard; belongs with Unit 03. |
-| carnyx | `TSCRIBE_DOWNLOAD_TIMEOUT_S` | *(not yet modeled)* | Server-mode Drive-pull timeout; belongs with Unit 03. |
-| carnyx | `CARNYX_DRIVE_SA_JSON` | *(not yet modeled)* | Server-mode Drive service-account path; belongs with Unit 03. |
+| carnyx | `TSCRIBE_MAX_AUDIO_BYTES` | `server.max_audio_bytes` | Server-mode upload guard, modeled in Unit 03 (default 2 GiB). |
+| carnyx | `TSCRIBE_DOWNLOAD_TIMEOUT_S` | `server.download_timeout_s` | Server-mode Drive/URL-pull timeout, modeled in Unit 03 (default 600s). |
+| carnyx | `CARNYX_DRIVE_SA_JSON` | `server.drive_sa_json_env` (name of the var, not the value; defaults to `CARNYX_DRIVE_SA_JSON`) | Server-mode Drive service-account credential resolution stays independent of this field by design (see `server/drive.py`'s own docstring) — this is only the first, explicit override in that resolution chain, modeled in Unit 03. |
+
+Also new since Unit 05 (neither source repo had this — it's `tscribe-capture-rig`'s territory, migrated separately): a `capture:` section (`mic_match`, `sample_rate`, `channels`, `segment_seconds`, `out_dir`, the two `duration_tolerance_*_s` fields, and the two `silence_*_db` floors) replaces `tscribe-capture-rig`'s `rig.conf` KEY=VALUE format — see `docs/units/05-capture-integration.md` for the full field mapping.
 
 ## `remote.kind` — a field that didn't exist before
 

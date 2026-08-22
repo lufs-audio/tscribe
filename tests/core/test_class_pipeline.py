@@ -23,7 +23,6 @@ import pytest
 
 from tscribe.config import Backend, ChunkingConfig, Mode, RuntimeConfig
 from tscribe.core.class_pipeline import (
-    Contract,
     ContractViolation,
     transcribe_class,
 )
@@ -43,7 +42,9 @@ def _cfg(chunk_minutes: float, snap_window_s: float, workers: int = 2) -> Runtim
     return RuntimeConfig(
         mode=Mode.CLIENT,
         backend=Backend.LOCAL,
-        chunking=ChunkingConfig(minutes=chunk_minutes, snap_window_s=snap_window_s, workers=workers),
+        chunking=ChunkingConfig(
+            minutes=chunk_minutes, snap_window_s=snap_window_s, workers=workers
+        ),
     )
 
 
@@ -51,13 +52,16 @@ def _cfg(chunk_minutes: float, snap_window_s: float, workers: int = 2) -> Runtim
 # back-to-back repetition -- indistinguishable from a transcriber loop, and
 # the degeneracy check correctly refuses it. Synthetic text standing in for
 # speech has to look like speech in the ways the contract measures.
-_VOCAB = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
-          "lima mike november oscar papa quebec romeo sierra tango uniform "
-          "victor whiskey xray yankee zulu").split()
+_VOCAB = (
+    "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
+    "lima mike november oscar papa quebec romeo sierra tango uniform "
+    "victor whiskey xray yankee zulu"
+).split()
 
 
 def _words(n: int, seed: int = 1234) -> str:
     import random
+
     rng = random.Random(seed)
     return " ".join(rng.choice(_VOCAB) for _ in range(n))
 
@@ -76,15 +80,43 @@ def _make_recording(path: Path) -> None:
     ]
     for f, out in segs:
         subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f,
-             "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", str(out)],
+            [
+                "ffmpeg",
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f,
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-sample_fmt",
+                "s16",
+                str(out),
+            ],
             check=True,
         )
     listfile = path.parent / "list.txt"
     listfile.write_text("".join(f"file '{out}'\n" for _, out in segs))
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
-         "-i", str(listfile), "-c", "copy", str(path)],
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(listfile),
+            "-c",
+            "copy",
+            str(path),
+        ],
         check=True,
     )
 
@@ -102,6 +134,7 @@ class MockTranscriber:
     def transcribe(self, audio_path: str):
         # Silence chunks legitimately transcribe to empty.
         from tscribe.core.class_pipeline.verify import _mean_volume_db
+
         mean_db = _mean_volume_db(audio_path)
         idx = self._seen
         self._seen += 1
@@ -124,7 +157,9 @@ def recording(tmp_path):
 def test_good_run_passes_contract(recording, tmp_path):
     out = tmp_path / "out.md"
     result = transcribe_class(
-        str(recording), str(out), _cfg(10 / 60.0, 3.0, workers=2),
+        str(recording),
+        str(out),
+        _cfg(10 / 60.0, 3.0, workers=2),
         transcriber=MockTranscriber(),
     )
     assert result.report.ok, result.report.failures
@@ -139,7 +174,9 @@ def test_dropped_chunk_is_caught(recording, tmp_path):
     out = tmp_path / "out.md"
     with pytest.raises(ContractViolation) as exc:
         transcribe_class(
-            str(recording), str(out), _cfg(10 / 60.0, 3.0, workers=1),
+            str(recording),
+            str(out),
+            _cfg(10 / 60.0, 3.0, workers=1),
             transcriber=MockTranscriber(drop_index=0),  # first chunk has speech
         )
     assert "transcript_nonempty" in str(exc.value)
@@ -194,5 +231,5 @@ def test_split_plan_is_deterministic():
 
 
 def test_metamorphic_whole_vs_chunked_tolerance():
-    assert metamorphic_whole_vs_chunked(7699, 7705).ok          # the real numbers
-    assert not metamorphic_whole_vs_chunked(7699, 5000).ok      # a real regression
+    assert metamorphic_whole_vs_chunked(7699, 7705).ok  # the real numbers
+    assert not metamorphic_whole_vs_chunked(7699, 5000).ok  # a real regression

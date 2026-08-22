@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Protocol
 
 
 @dataclass
@@ -39,9 +39,9 @@ class JobHandle:
 class JobResult:
     status: str  # "done" | "failed" | "running" | "queued"
     verified: bool
-    transcript: Optional[str] = None
-    report: Optional[dict] = None
-    error: Optional[str] = None
+    transcript: str | None = None
+    report: dict | None = None
+    error: str | None = None
 
 
 class TscribeClient(Protocol):
@@ -68,8 +68,11 @@ class ClientBase:
         result = self.poll(handle)
         while result.status not in ("done", "failed"):
             if time.monotonic() > deadline:
-                return JobResult(status="failed", verified=False,
-                                  error=f"timed out after {timeout_s:.0f}s waiting on job {handle.id}")
+                return JobResult(
+                    status="failed",
+                    verified=False,
+                    error=f"timed out after {timeout_s:.0f}s waiting on job {handle.id}",
+                )
             time.sleep(poll_interval_s)
             result = self.poll(handle)
         return result

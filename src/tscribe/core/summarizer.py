@@ -66,9 +66,7 @@ class Summarizer:
                 f"'{remote.api_key_env}'."
             )
         if response.status_code == 404:
-            raise RuntimeError(
-                f"liteLLM model '{self.cfg.summarization.model}' not found."
-            )
+            raise RuntimeError(f"liteLLM model '{self.cfg.summarization.model}' not found.")
 
         response.raise_for_status()
         result = response.json()

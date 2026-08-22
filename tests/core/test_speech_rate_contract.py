@@ -72,8 +72,21 @@ def _concat(parts: list[Path], out: Path, tmp: Path) -> Path:
     listfile = tmp / f"{out.stem}_list.txt"
     listfile.write_text("".join(f"file '{p}'\n" for p in parts))
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
-         "-i", str(listfile), "-c", "copy", str(out)],
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(listfile),
+            "-c",
+            "copy",
+            str(out),
+        ],
         check=True,
     )
     return out
@@ -82,14 +95,16 @@ def _concat(parts: list[Path], out: Path, tmp: Path) -> Path:
 def _talk(tmp: Path, seconds: float) -> Path:
     """Speech-level audio: ~-21 dBFS mean, peaks ~-18 dBFS, well over any
     reasonable speech threshold."""
-    return _gen(f"sine=frequency=200:duration={seconds:.3f}",
-                tmp / f"talk_{seconds * 10:.0f}.wav")
+    return _gen(f"sine=frequency=200:duration={seconds:.3f}", tmp / f"talk_{seconds * 10:.0f}.wav")
 
 
 def _room(tmp: Path, seconds: float) -> Path:
     """Empty-room tone: audible to a meter, silence to a speech detector."""
-    return _gen(f"anoisesrc=r=16000:c=pink:duration={seconds:.3f}",
-                tmp / f"room_{seconds * 10:.0f}.wav", af="volume=-40dB")
+    return _gen(
+        f"anoisesrc=r=16000:c=pink:duration={seconds:.3f}",
+        tmp / f"room_{seconds * 10:.0f}.wav",
+        af="volume=-40dB",
+    )
 
 
 def _crosstalk(tmp: Path, seconds: float) -> Path:
@@ -100,8 +115,11 @@ def _crosstalk(tmp: Path, seconds: float) -> Path:
     conversation looks like to ``silencedetect``, and it is the whole reason the
     speech-time denominator cannot be trusted blindly.
     """
-    return _gen(f"anoisesrc=r=16000:c=pink:duration={seconds:.3f}",
-                tmp / f"crosstalk_{seconds * 10:.0f}.wav", af="volume=-13dB")
+    return _gen(
+        f"anoisesrc=r=16000:c=pink:duration={seconds:.3f}",
+        tmp / f"crosstalk_{seconds * 10:.0f}.wav",
+        af="volume=-13dB",
+    )
 
 
 @pytest.fixture
@@ -133,18 +151,20 @@ def lecture_chunk(tmp_path):
 @pytest.fixture
 def crosstalk_chunk(tmp_path):
     """15 min of unbroken simultaneous conversation."""
-    return _concat([_crosstalk(tmp_path, 90.0)] * 10,
-                   tmp_path / "crosstalk.wav", tmp_path)
+    return _concat([_crosstalk(tmp_path, 90.0)] * 10, tmp_path / "crosstalk.wav", tmp_path)
 
 
 # Deterministic non-repetitive filler -- see test_class_pipeline.py for why.
-_VOCAB = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
-          "lima mike november oscar papa quebec romeo sierra tango uniform "
-          "victor whiskey xray yankee zulu").split()
+_VOCAB = (
+    "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
+    "lima mike november oscar papa quebec romeo sierra tango uniform "
+    "victor whiskey xray yankee zulu"
+).split()
 
 
 def _words(n: int, seed: int = 1234) -> str:
     import random
+
     rng = random.Random(seed)
     return " ".join(rng.choice(_VOCAB) for _ in range(n))
 
@@ -160,9 +180,7 @@ def _judge(chunk_path: Path, words: int, index: int = 10) -> VerifyReport:
 def _outcome(chunk_path: Path, words: int, index: int = 10) -> str:
     dur = probe_duration(str(chunk_path))
     chunk = ChunkSpec(index=index, path=str(chunk_path), start_s=0.0, end_s=dur)
-    return assert_transcript_earned(
-        VerifyReport(), chunk, _words(words), Contract()
-    )
+    return assert_transcript_earned(VerifyReport(), chunk, _words(words), Contract())
 
 
 def _names(report: VerifyReport) -> set[str]:
@@ -170,6 +188,7 @@ def _names(report: VerifyReport) -> set[str]:
 
 
 # ---------------------------------------------------------------- measurement
+
 
 def test_chunk_levels_separates_audio_presence_from_speech_time(workshop_chunk):
     """The two questions the old single mean-volume test conflated."""
@@ -204,6 +223,7 @@ def test_chunk_levels_saturates_on_continuous_room_sound(crosstalk_chunk):
 
 # ------------------------------------------------------------------ the fix
 
+
 def test_sparse_speech_chunk_is_not_a_failure(workshop_chunk):
     """THE FIRST REGRESSION. 390 words = 26 wpm on the wall clock, but
     130 wpm across the speech that actually happened. Must pass."""
@@ -216,8 +236,9 @@ def test_sparse_speech_chunk_is_not_a_failure(workshop_chunk):
 def test_sparse_speech_floor_is_skipped_when_speech_is_negligible(tmp_path):
     """A chunk with only a few seconds of talking: a rate is meaningless, so the
     floor is skipped rather than guessed at."""
-    chunk = _concat([_talk(tmp_path, 10.0), _room(tmp_path, 90.0)],
-                    tmp_path / "almost_empty.wav", tmp_path)
+    chunk = _concat(
+        [_talk(tmp_path, 10.0), _room(tmp_path, 90.0)], tmp_path / "almost_empty.wav", tmp_path
+    )
     report = _judge(chunk, words=20)
     assert report.ok, [(c.name, c.detail) for c in report.failures]
     assert "sparse_speech_ok" in _names(report)
@@ -248,9 +269,9 @@ def test_saturation_is_reported_as_an_advisory_not_a_silent_skip(crosstalk_chunk
     assert note.ok
     assert note.detail.startswith(ADVISORY_PREFIX)
     assert "no silence detected" in note.detail
-    assert "1.000" in note.detail            # the ratio that gave it away
+    assert "1.000" in note.detail  # the ratio that gave it away
     assert "abstains" in note.detail
-    assert "yield relation" in note.detail   # names the guard taking over
+    assert "yield relation" in note.detail  # names the guard taking over
 
 
 def test_saturated_outcome_is_reported_to_the_caller(crosstalk_chunk, lecture_chunk):
@@ -261,6 +282,7 @@ def test_saturated_outcome_is_reported_to_the_caller(crosstalk_chunk, lecture_ch
 
 
 # ------------------------------------------------------- still has its teeth
+
 
 def test_dropped_content_in_a_real_lecture_still_fails(lecture_chunk):
     """15 minutes of solid talking that transcribed to 390 words IS a failure --
@@ -315,6 +337,7 @@ def test_silent_chunk_still_allowed_to_be_empty(tmp_path):
 
 # ------------------------------- abstention must be disclosed, not papered over
 
+
 def test_an_uncoverable_abstention_is_disclosed_not_invented_as_a_failure():
     """A chunk the floor abstained on, with no cohort to compare it against, is
     *unproven* -- and the report has to say so. What it must not do is fail the
@@ -322,12 +345,12 @@ def test_an_uncoverable_abstention_is_disclosed_not_invented_as_a_failure():
     is the same mistake the floor made before. The gap is named; the rest of the
     contract still covers the chunk."""
     report = VerifyReport()
-    assert_rate_guard_coverage(report, [8], judged_by_relation=set(),
-                               floor_applied_indices=[0, 1, 2],
-                               contract=Contract())
+    assert_rate_guard_coverage(
+        report, [8], judged_by_relation=set(), floor_applied_indices=[0, 1, 2], contract=Contract()
+    )
     assert report.ok
     row = next(c for c in report.checks if c.name == "rate_guard.coverage")
-    assert row.detail.startswith(ADVISORY_PREFIX)   # passed, but read this
+    assert row.detail.startswith(ADVISORY_PREFIX)  # passed, but read this
     assert "chunk[8]" in row.detail
     assert "no speaking-rate check covered it" in row.detail
     assert "the rest of the contract still applies" in row.detail
@@ -335,9 +358,13 @@ def test_an_uncoverable_abstention_is_disclosed_not_invented_as_a_failure():
 
 def test_abstention_is_clean_when_the_relation_took_over():
     report = VerifyReport()
-    assert_rate_guard_coverage(report, [8], judged_by_relation={4, 6, 8, 9},
-                               floor_applied_indices=[0, 1],
-                               contract=Contract())
+    assert_rate_guard_coverage(
+        report,
+        [8],
+        judged_by_relation={4, 6, 8, 9},
+        floor_applied_indices=[0, 1],
+        contract=Contract(),
+    )
     assert report.ok
     row = next(c for c in report.checks if c.name == "rate_guard.coverage")
     assert row.detail.startswith(ADVISORY_PREFIX)
@@ -350,8 +377,9 @@ def test_a_recording_with_no_rate_check_at_all_does_fail():
     and calling that verified would overstate the result rather than merely leave
     a gap in it."""
     report = VerifyReport()
-    assert_rate_guard_coverage(report, [0, 1], judged_by_relation=set(),
-                               floor_applied_indices=[], contract=Contract())
+    assert_rate_guard_coverage(
+        report, [0, 1], judged_by_relation=set(), floor_applied_indices=[], contract=Contract()
+    )
     assert not report.ok
     failure = next(c for c in report.failures if c.name == "rate_guard.coverage")
     assert "proved nothing at all" in failure.detail
@@ -360,15 +388,20 @@ def test_a_recording_with_no_rate_check_at_all_does_fail():
 
 def test_no_abstention_reports_a_clean_pass():
     report = VerifyReport()
-    assert_rate_guard_coverage(report, [], judged_by_relation={0, 1, 2, 3},
-                               floor_applied_indices=[0, 1, 2, 3],
-                               contract=Contract())
+    assert_rate_guard_coverage(
+        report,
+        [],
+        judged_by_relation={0, 1, 2, 3},
+        floor_applied_indices=[0, 1, 2, 3],
+        contract=Contract(),
+    )
     assert report.ok
     row = next(c for c in report.checks if c.name == "rate_guard.coverage")
     assert not row.detail.startswith(ADVISORY_PREFIX)
 
 
 # -------------------------------------------------------- the report must not lie
+
 
 @pytest.mark.parametrize("words", [390, 20, 20000, 0])
 def test_passing_checks_never_carry_failure_prose(workshop_chunk, words):
@@ -403,9 +436,7 @@ def test_a_report_row_is_always_one_of_three_unambiguous_states(workshop_chunk):
     """failed / passed-with-caveat / passed-clean, distinguishable without
     reading the prose."""
     report = _judge(workshop_chunk, words=20000)
-    states = {
-        (c.ok, c.detail.startswith(ADVISORY_PREFIX)) for c in report.checks
-    }
+    states = {(c.ok, c.detail.startswith(ADVISORY_PREFIX)) for c in report.checks}
     assert (False, True) not in states, "a failure must never be dressed as advisory"
     advisories = [c for c in report.checks if c.detail.startswith(ADVISORY_PREFIX)]
     assert advisories, "this fixture should raise the unreliable-denominator caveat"
@@ -415,8 +446,9 @@ def test_a_report_row_is_always_one_of_three_unambiguous_states(workshop_chunk):
 def test_a_failed_coverage_check_is_never_dressed_as_advisory():
     """The one place a caveat and a failure could get confused, pinned down."""
     report = VerifyReport()
-    assert_rate_guard_coverage(report, [0], judged_by_relation=set(),
-                               floor_applied_indices=[], contract=Contract())
+    assert_rate_guard_coverage(
+        report, [0], judged_by_relation=set(), floor_applied_indices=[], contract=Contract()
+    )
     failure = next(c for c in report.failures if c.name == "rate_guard.coverage")
     assert not failure.detail.startswith(ADVISORY_PREFIX)
 
@@ -425,8 +457,8 @@ def test_failing_checks_report_both_measurement_and_diagnosis(lecture_chunk):
     report = _judge(lecture_chunk, words=390)
     failure = next(c for c in report.failures if "wpm_above_floor" in c.name)
     assert "31 wpm" in failure.detail or "30 wpm" in failure.detail  # the measurement
-    assert "of detected speech" in failure.detail                   # the denominator
-    assert "below 40 wpm" in failure.detail                         # the diagnosis
+    assert "of detected speech" in failure.detail  # the denominator
+    assert "below 40 wpm" in failure.detail  # the diagnosis
 
 
 def test_unmeasurable_speech_time_fails_closed(workshop_chunk, monkeypatch):
@@ -443,12 +475,11 @@ def test_unmeasurable_speech_time_fails_closed(workshop_chunk, monkeypatch):
     v.assert_transcript_earned(report, spec, _words(390), Contract())
     assert not report.ok
     assert any("wpm_above_floor" in c.name for c in report.failures)
-    assert "unmeasurable" in next(
-        c.detail for c in report.failures if "wpm_above_floor" in c.name
-    )
+    assert "unmeasurable" in next(c.detail for c in report.failures if "wpm_above_floor" in c.name)
 
 
 # -------------------------------------------------- the threshold is calibrated
+
 
 def test_the_saturation_threshold_clears_every_real_measurement_we_have():
     """Ten chunks from a real class, as speech fractions of a 900s chunk. None
@@ -464,8 +495,8 @@ def test_the_saturation_threshold_clears_every_real_measurement_we_have():
 
 # ------------------------------------------ the whole contract, end to end
 
-def _mixed_recording_chunks(tmp_path, n_normal: int, n_saturated: int,
-                            chunk_s: float = 180.0):
+
+def _mixed_recording_chunks(tmp_path, n_normal: int, n_saturated: int, chunk_s: float = 180.0):
     """Build real chunk files: ``n_normal`` dense-lecture chunks followed by
     ``n_saturated`` crosstalk chunks, tiling one timeline contiguously."""
     specs, texts = [], []
@@ -475,12 +506,13 @@ def _mixed_recording_chunks(tmp_path, n_normal: int, n_saturated: int,
         out = tmp_path / f"c{i}.wav"
         if i < n_normal:
             _concat([talk, breath] * cycles, out, tmp_path)
-            words = 300           # ~118 wpm over ~153s of speech: healthy
+            words = 300  # ~118 wpm over ~153s of speech: healthy
         else:
             _concat([_crosstalk(tmp_path, chunk_s)], out, tmp_path)
-            words = 58            # 19 wpm over wall clock: the real crosstalk rate
-        specs.append(ChunkSpec(index=i, path=str(out),
-                               start_s=i * chunk_s, end_s=(i + 1) * chunk_s))
+            words = 58  # 19 wpm over wall clock: the real crosstalk rate
+        specs.append(
+            ChunkSpec(index=i, path=str(out), start_s=i * chunk_s, end_s=(i + 1) * chunk_s)
+        )
         texts.append(_words(words))
     return specs, texts
 
@@ -488,10 +520,14 @@ def _mixed_recording_chunks(tmp_path, n_normal: int, n_saturated: int,
 def _run_contract(specs, texts):
     from tscribe.core.class_pipeline.pipeline import reassemble
     from tscribe.core.class_pipeline.verify import verify_run
+
     assembled = reassemble(specs, texts, "class.m4a")
     return verify_run(
-        input_path="class.m4a", chunks=specs, chunk_texts=texts,
-        assembled=assembled, total_s=specs[-1].end_s,
+        input_path="class.m4a",
+        chunks=specs,
+        chunk_texts=texts,
+        assembled=assembled,
+        total_s=specs[-1].end_s,
     )
 
 
@@ -505,8 +541,8 @@ def test_a_class_with_one_crosstalk_chunk_passes_the_whole_contract(tmp_path):
 
     names = {c.name for c in report.checks}
     assert "chunk[4].speech_measure_saturated" in names
-    assert "chunk[4].wpm_above_floor" not in names   # abstained
-    assert "chunk[0].wpm_above_floor" in names       # siblings still judged
+    assert "chunk[4].wpm_above_floor" not in names  # abstained
+    assert "chunk[0].wpm_above_floor" in names  # siblings still judged
 
     coverage = next(c for c in report.checks if c.name == "rate_guard.coverage")
     assert coverage.ok
@@ -545,8 +581,7 @@ def test_a_starved_chunk_among_crosstalk_peers_is_still_caught(tmp_path):
     texts[7] = _words(5)
     report = _run_contract(specs, texts)
     assert not report.ok
-    failure = next(c for c in report.failures
-                   if c.name == "speech_yield.consistent_saturated")
+    failure = next(c for c in report.failures if c.name == "speech_yield.consistent_saturated")
     assert "chunk[7]" in failure.detail
     assert "content likely dropped" in failure.detail
 
@@ -561,12 +596,12 @@ def test_a_healthy_crosstalk_half_passes_on_its_own_terms(tmp_path):
     assert report.ok, [(c.name, c.detail) for c in report.failures]
 
     names = {c.name for c in report.checks}
-    assert "speech_yield.consistent" in names            # the lecture cohort
+    assert "speech_yield.consistent" in names  # the lecture cohort
     assert "speech_yield.consistent_saturated" in names  # the crosstalk cohort
 
     coverage = next(c for c in report.checks if c.name == "rate_guard.coverage")
     assert coverage.ok
-    assert "judged" in coverage.detail   # every abstention was covered
+    assert "judged" in coverage.detail  # every abstention was covered
 
 
 def test_pooling_the_two_cohorts_would_have_false_accused(tmp_path):
@@ -591,7 +626,7 @@ def test_pooling_the_two_cohorts_would_have_false_accused(tmp_path):
     pooled = sorted(ratios)
     pooled_median = (pooled[3] + pooled[4]) / 2.0
 
-    assert min(lecture) > max(crosstalk) * 3        # incommensurable, by a lot
+    assert min(lecture) > max(crosstalk) * 3  # incommensurable, by a lot
     # Pooled, every crosstalk chunk trips the 30%-of-median outlier threshold.
     assert all(r < 0.30 * pooled_median for r in crosstalk)
     # Judged against its own cohort, none of them does.

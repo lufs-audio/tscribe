@@ -20,9 +20,39 @@ dependencies = [
 tscribe = "tscribe.cli:main"
 
 [project.optional-dependencies]
+# mode: server — FastAPI surface, job lifecycle, Google Drive integration
+# (Unit 03). Kept out of the base install so a client-only/local-only install
+# stays light — this project's own "keep the light path working" principle.
+server = [
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
+    "pydantic>=2.0",
+    "python-multipart>=0.0.9",
+    "google-api-python-client>=2.100",
+    "google-auth>=2.20",
+]
+# backend: local — the in-process faster-whisper path (Unit 02). Optional
+# because mode: client + backend: remote, and mode: server deployments that
+# only ever proxy to a GPU host, never need it.
+local = [
+    "faster-whisper>=1.0",
+]
+# tscribe record / tscribe devices (Unit 04's recorder.py) — mic capture.
+record = [
+    "sounddevice>=0.4",
+    "numpy>=1.24",
+]
+# Everything at once — the common case for a single developer machine that
+# wants to exercise every mode without thinking about which extra covers what.
+all = [
+    "tscribe[server,local,record]",
+]
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.5.0",
+    # dev/test-only: FastAPI's TestClient needs httpx; running `tscribe serve`
+    # for real needs uvicorn, already pulled in by the `server` extra above.
+    "httpx>=0.27",
 ]
 
 [tool.pytest.ini_options]

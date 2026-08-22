@@ -44,7 +44,8 @@ from tscribe.server import config, jobs  # noqa: E402
 from tscribe.server.app import create_app  # noqa: E402
 
 TEST_CFG = RuntimeConfig(
-    mode=Mode.SERVER, backend=Backend.LOCAL,
+    mode=Mode.SERVER,
+    backend=Backend.LOCAL,
     # 10s chunks so a 30s fixture yields several.
     chunking=ChunkingConfig(minutes=10 / 60.0, snap_window_s=3.0, workers=2),
 )
@@ -53,13 +54,16 @@ client = TestClient(app)
 
 
 # Deterministic non-repetitive filler — see test_app.py for why.
-_VOCAB = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
-          "lima mike november oscar papa quebec romeo sierra tango uniform "
-          "victor whiskey xray yankee zulu").split()
+_VOCAB = (
+    "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo "
+    "lima mike november oscar papa quebec romeo sierra tango uniform "
+    "victor whiskey xray yankee zulu"
+).split()
 
 
 def _words(n: int, seed: int = 1234) -> str:
     import random
+
     rng = random.Random(seed)
     return " ".join(rng.choice(_VOCAB) for _ in range(n))
 
@@ -73,6 +77,7 @@ class DroppingTranscriber:
 
     def transcribe(self, audio_path: str):
         from tscribe.core.class_pipeline.splitter import probe_duration
+
         idx = self._seen
         self._seen += 1
         if idx == 0:
@@ -95,9 +100,23 @@ def tone_wav(tmp_path):
     back empty is unambiguously a drop."""
     p = tmp_path / "tone.wav"
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
-         "sine=frequency=220:duration=30", "-ac", "1", "-ar", "16000",
-         "-sample_fmt", "s16", str(p)],
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=220:duration=30",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-sample_fmt",
+            "s16",
+            str(p),
+        ],
         check=True,
     )
     return p
@@ -115,12 +134,14 @@ def _wait(job_id, timeout=60):
 @pytest.fixture
 def failed_job(tone_wav, monkeypatch):
     import shutil
+
     monkeypatch.setattr(jobs, "_download_url", lambda url, dest, cfg: shutil.copy(tone_wav, dest))
     job = jobs.submit(TEST_CFG, audio_url="https://example.com/tone.wav", source_name="tone.wav")
     return _wait(job.id)
 
 
 # ------------------------------------------------------- the gate stays closed
+
 
 def test_the_job_still_fails(failed_job):
     assert failed_job.status == "failed"
@@ -140,6 +161,7 @@ def test_nothing_was_written_back_or_moved(failed_job):
 
 
 # ------------------------------------------------------ the evidence survives
+
 
 def test_the_report_is_retained_with_all_of_its_rows(failed_job):
     report = failed_job.report
@@ -174,19 +196,22 @@ def test_the_api_surfaces_both_over_http(failed_job):
 
 # ------------------------------------------ a passing job is unaffected
 
+
 def test_a_verified_job_still_reports_verified(tone_wav, monkeypatch):
     import shutil
 
     class GoodTranscriber:
         def transcribe(self, audio_path: str):
             from tscribe.core.class_pipeline.splitter import probe_duration
+
             dur = probe_duration(audio_path)
             return _words(max(1, int(120 * dur / 60.0))), None
 
     config.transcriber_factory = lambda cfg: GoodTranscriber()
     monkeypatch.setattr(jobs, "_download_url", lambda url, dest, cfg: shutil.copy(tone_wav, dest))
-    job = _wait(jobs.submit(TEST_CFG, audio_url="https://example.com/tone.wav",
-                            source_name="tone.wav").id)
+    job = _wait(
+        jobs.submit(TEST_CFG, audio_url="https://example.com/tone.wav", source_name="tone.wav").id
+    )
     assert job.status == "done", job.error
     assert job.verified is True
     assert job.report["ok"] is True

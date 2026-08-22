@@ -117,6 +117,82 @@ class ServerConfig:
 
 
 @dataclass
+class CaptureConfig:
+    """`tscribe capture start|verify|finalize` settings (Unit 05). Ported from
+    tscribe-capture-rig's `rig.conf` (KEY=VALUE) and the hardcoded contract
+    constants in its `verify_capture.py` — both are retired in favor of this
+    one config-file section. Fields map onto the source rig 1:1:
+
+        rig.conf MIC_MATCH          -> mic_match
+        rig.conf MIC_NAME           -> mic_name
+        rig.conf SAMPLE_RATE        -> sample_rate
+        rig.conf CHANNELS           -> channels
+        rig.conf SEGMENT_SECONDS    -> segment_seconds
+        rig.conf OUT_DIR            -> out_dir
+        verify_capture.py DUR_TOL_SEG    -> duration_tolerance_segment_s
+        verify_capture.py DUR_TOL_FINAL  -> duration_tolerance_final_s
+        verify_capture.py MEAN_WARN_DB   -> silence_warn_db
+        verify_capture.py MEAN_FAIL_DB   -> silence_fail_db
+
+    The dB thresholds were conservative starting points in the source rig,
+    calibrated on the first real classroom capture — now config-exposed
+    (rather than hardcoded) specifically so that recalibration is a
+    tscribe.yaml edit, not a code change.
+    """
+
+    # Linux (PipeWire/Pulse): substring match against `pactl list sources
+    # short` to pick the input device. Windows uses `mic_name` instead (an
+    # exact DirectShow device name — substring auto-match in that API is
+    # brittle, same rationale the source rig's capture.bat documented).
+    mic_match: str = "Tula"
+    mic_name: str = ""
+
+    # Capture shape — carnyx/tscribe.core ingest 16 kHz / mono / 16-bit;
+    # capture native, no resample.
+    sample_rate: int = 16000
+    channels: int = 1
+
+    # Segment length in seconds. 900 = 15 min, aligned to the class breaks
+    # (matches SPEC.md's Unit 05 acceptance criterion default).
+    segment_seconds: int = 900
+
+    # Output directory for segmented WAVs (e.g. on a USB flash drive).
+    out_dir: str = "class_audio"
+
+    # duration_in_band tolerances, seconds: mid-run segment vs segment_seconds,
+    # and final concatenated file vs measured wall-clock sum of segments.
+    duration_tolerance_segment_s: float = 2.0
+    duration_tolerance_final_s: float = 5.0
+
+    # not_silence_floor thresholds, dBFS mean_volume (ffmpeg volumedetect).
+    # Quieter than silence_warn_db: WARN (gain/placement). Quieter than
+    # silence_fail_db: FAIL — dead capture (mic blocked/unplugged/privacy
+    # toggle). silence_warn_db must stay >= silence_fail_db.
+    silence_warn_db: float = -50.0
+    silence_fail_db: float = -60.0
+
+    # Optional explicit ffmpeg/ffprobe binary paths — same "zero PATH setup"
+    # resolution order the source verifier used (explicit override here >
+    # FFMPEG/FFPROBE env vars > PATH), so a portable ffmpeg dropped next to a
+    # deployment still works with no shell configuration.
+    ffmpeg_bin: str | None = None
+    ffprobe_bin: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.silence_warn_db < self.silence_fail_db:
+            raise ConfigError(
+                "capture.silence_warn_db must be >= capture.silence_fail_db "
+                f"(got warn={self.silence_warn_db}, fail={self.silence_fail_db})."
+            )
+        if self.segment_seconds <= 0:
+            raise ConfigError("capture.segment_seconds must be positive.")
+        if self.sample_rate <= 0:
+            raise ConfigError("capture.sample_rate must be positive.")
+        if self.channels <= 0:
+            raise ConfigError("capture.channels must be positive.")
+
+
+@dataclass
 class RuntimeConfig:
     mode: Mode
     backend: Backend
@@ -125,6 +201,7 @@ class RuntimeConfig:
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     summarization: SummarizationConfig = field(default_factory=SummarizationConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
+    capture: CaptureConfig = field(default_factory=CaptureConfig)
 
     def __post_init__(self) -> None:
         if self.backend == Backend.REMOTE and self.remote is None:
@@ -228,6 +305,29 @@ def _build_server_config(raw: dict[str, Any] | None) -> ServerConfig:
     )
 
 
+def _build_capture_config(raw: dict[str, Any] | None) -> CaptureConfig:
+    raw = raw or {}
+    defaults = CaptureConfig()
+    return CaptureConfig(
+        mic_match=raw.get("mic_match", defaults.mic_match),
+        mic_name=raw.get("mic_name", defaults.mic_name),
+        sample_rate=raw.get("sample_rate", defaults.sample_rate),
+        channels=raw.get("channels", defaults.channels),
+        segment_seconds=raw.get("segment_seconds", defaults.segment_seconds),
+        out_dir=raw.get("out_dir", defaults.out_dir),
+        duration_tolerance_segment_s=raw.get(
+            "duration_tolerance_segment_s", defaults.duration_tolerance_segment_s
+        ),
+        duration_tolerance_final_s=raw.get(
+            "duration_tolerance_final_s", defaults.duration_tolerance_final_s
+        ),
+        silence_warn_db=raw.get("silence_warn_db", defaults.silence_warn_db),
+        silence_fail_db=raw.get("silence_fail_db", defaults.silence_fail_db),
+        ffmpeg_bin=raw.get("ffmpeg_bin", defaults.ffmpeg_bin),
+        ffprobe_bin=raw.get("ffprobe_bin", defaults.ffprobe_bin),
+    )
+
+
 def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
     """The pure, testable core: dict in, RuntimeConfig out (or ConfigError).
 
@@ -248,6 +348,7 @@ def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
         chunking=_build_chunking_config(data.get("chunking")),
         summarization=_build_summarization_config(data.get("summarization")),
         server=_build_server_config(data.get("server")),
+        capture=_build_capture_config(data.get("capture")),
     )
 
 

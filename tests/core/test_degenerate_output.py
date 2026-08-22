@@ -42,21 +42,24 @@ def _chunk(index: int = 7) -> ChunkSpec:
 
 def _judge(text: str, *, saturated: bool = False, index: int = 7) -> VerifyReport:
     report = VerifyReport()
-    assert_not_degenerate(report, _chunk(index), text, Contract(),
-                          speech_measure_saturated=saturated)
+    assert_not_degenerate(
+        report, _chunk(index), text, Contract(), speech_measure_saturated=saturated
+    )
     return report
 
 
 # Reconstructions of the real chunks, at their real proportions.
 LOOPED_TAIL = (  # ~700 words of instruction, then 41 straight repeats
-    ("you are going to be evicted you are no longer allowed to be in the same "
-     "neighborhood i want you to find a new neighborhood pair up with somebody "
-     "different not from your block ") * 26
+    (
+        "you are going to be evicted you are no longer allowed to be in the same "
+        "neighborhood i want you to find a new neighborhood pair up with somebody "
+        "different not from your block "
+    )
+    * 26
     + "it's a big part. " * 41
 )
 CROSSTALK_LOOP = (  # two sentences on repeat over unintelligible audio
-    "i've always been the issue but it's because i'm not in the face of the police "
-    * 6
+    "i've always been the issue but it's because i'm not in the face of the police " * 6
     + "i'll go back to the real world what's up everybody i don't know "
     + "it's a great place. " * 7
     + "i i i i i i i"
@@ -69,6 +72,7 @@ CLEAN_LECTURE = (
 
 
 # ------------------------------------------------------------ the measurement
+
 
 def test_loop_coverage_separates_looping_from_talking():
     """A phrase repeated across a chunk is speech; the same phrase repeated
@@ -98,6 +102,7 @@ def test_empty_and_tiny_inputs_do_not_explode():
 
 
 # --------------------------------------------------- disposition by what's underneath
+
 
 def test_a_loop_over_real_speech_is_a_failure():
     """The speech measure was clean, so real instruction was present and the
@@ -140,29 +145,28 @@ def test_saturation_excuses_the_loop_but_not_a_clean_chunks_loop():
 
 # ------------------------------------------------------ the report must not lie
 
+
 def test_every_row_is_one_of_the_three_states():
-    for text, sat in ((CLEAN_LECTURE, False), (CROSSTALK_LOOP, True),
-                      (LOOPED_TAIL, False)):
+    for text, sat in ((CLEAN_LECTURE, False), (CROSSTALK_LOOP, True), (LOOPED_TAIL, False)):
         for c in _judge(text, saturated=sat).checks:
             if not c.ok:
                 assert not c.detail.startswith(ADVISORY_PREFIX)
 
 
 def test_a_passing_row_reports_the_measurement_not_an_accusation():
-    row = next(c for c in _judge(CLEAN_LECTURE).checks
-               if c.name.endswith("no_degenerate_output"))
+    row = next(c for c in _judge(CLEAN_LECTURE).checks if c.name.endswith("no_degenerate_output"))
     for word in ("fabricated", "looped", "defect"):
         assert word not in row.detail
 
 
 # ------------------------------------------------------------- the calibration
 
+
 def test_the_threshold_clears_every_healthy_chunk_we_have_measured():
     """The twelve healthy chunks measured in the source incident, as loop
     coverages. The threshold has to sit above all of them with room, or it
     starts calling a talkative lecturer a defect."""
-    healthy = [0.000, 0.008, 0.000, 0.000, 0.013, 0.000,
-               0.005, 0.007, 0.006, 0.000, 0.000, 0.000]
+    healthy = [0.000, 0.008, 0.000, 0.000, 0.013, 0.000, 0.005, 0.007, 0.006, 0.000, 0.000, 0.000]
     assert max(healthy) < Contract().max_loop_fraction / 3.0
 
 

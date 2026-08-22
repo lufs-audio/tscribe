@@ -34,7 +34,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -57,11 +56,11 @@ class Job:
     source: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
-    transcript: Optional[str] = None
-    report: Optional[dict] = None
-    error: Optional[str] = None
-    transcript_file_id: Optional[str] = None  # Drive id of the written-back transcript
-    upload_error: Optional[str] = None        # non-fatal: transcript still in `transcript`
+    transcript: str | None = None
+    report: dict | None = None
+    error: str | None = None
+    transcript_file_id: str | None = None  # Drive id of the written-back transcript
+    upload_error: str | None = None  # non-fatal: transcript still in `transcript`
     moved: list = field(default_factory=list)  # file ids successfully grouped
     move_errors: list = field(default_factory=list)
 
@@ -102,7 +101,7 @@ _JOBS: dict[str, Job] = {}
 _LOCK = threading.Lock()
 
 
-def get_job(job_id: str) -> Optional[Job]:
+def get_job(job_id: str) -> Job | None:
     with _LOCK:
         return _JOBS.get(job_id)
 
@@ -136,15 +135,17 @@ def _run(
     job: Job,
     local_audio: Path,
     cleanup_audio: bool,
-    dest_folder_id: Optional[str],
-    move_file_ids: Optional[list],
+    dest_folder_id: str | None,
+    move_file_ids: list | None,
 ) -> None:
     work = Path(tempfile.mkdtemp(prefix="tscribe_job_"))
     out = work / "transcript.md"
     try:
         job.touch("running")
         result = transcribe_class(
-            str(local_audio), str(out), cfg,
+            str(local_audio),
+            str(out),
+            cfg,
             transcriber=config.transcriber_factory(cfg),
         )
         job.transcript = result.transcript
@@ -154,8 +155,11 @@ def _run(
         # here are non-fatal: the transcript is already safe in job.transcript.
         if dest_folder_id:
             from . import drive  # lazy: only needs google libs when used
+
             try:
-                f = drive.upload_text(_transcript_name(local_audio), result.transcript, dest_folder_id)
+                f = drive.upload_text(
+                    _transcript_name(local_audio), result.transcript, dest_folder_id
+                )
                 job.transcript_file_id = f.get("id")
             except Exception as e:  # noqa: BLE001
                 job.upload_error = f"{type(e).__name__}: {e}"
@@ -209,12 +213,12 @@ def _run(
 def submit(
     cfg: RuntimeConfig,
     *,
-    audio_url: Optional[str] = None,
-    local_path: Optional[str] = None,
-    drive_file_id: Optional[str] = None,
-    dest_folder_id: Optional[str] = None,
-    move_file_ids: Optional[list] = None,
-    source_name: Optional[str] = None,
+    audio_url: str | None = None,
+    local_path: str | None = None,
+    drive_file_id: str | None = None,
+    dest_folder_id: str | None = None,
+    move_file_ids: list | None = None,
+    source_name: str | None = None,
 ) -> Job:
     """Create a job. Audio source is one of: `drive_file_id` (service-account
     download — preferred for big files), `audio_url` (public pull), or
@@ -230,6 +234,7 @@ def submit(
         try:
             if drive_file_id:
                 from . import drive  # lazy
+
                 name = source_name
                 if not name:
                     try:
