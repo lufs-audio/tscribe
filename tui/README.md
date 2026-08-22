@@ -95,6 +95,19 @@ backend to run one against locally). Two tiers, same approach as
   `503` misconfiguration, and an outright unreachable host -- all producing
   the correct, distinct on-screen state and a clean `q`/exit-0.
 
+**Independent audit before this was proposed for merge:** a second review
+(fetching this branch's real pushed files fresh, not the author's local copy)
+caught two real issues, both fixed in a follow-up commit: an unbounded
+`Content-Length`/no-length response body could trigger an attempted
+allocation of an attacker-chosen size (a real crash, not just a slow path —
+now capped); and the "running" elapsed figure was originally computed from
+the server's own `updated_at - created_at`, which the real server only
+advances at the START and END of a run (`jobs.py`'s `touch()`), never during
+it — so for the entire multi-hour job this tool exists to watch, that number
+would have stayed frozen near zero. It's now tracked locally (wall-clock
+time since this TUI first observed the job as `running`) and labeled "since
+first observed" rather than implying it's the job's true total runtime.
+
 **Known gap, flagged rather than assumed away:** none of the above touches a
 *real* `tscribe-class-carnyx` or `tscribe` server, real Google Drive
 write-back, or a real multi-hour transcription run. The fixture server

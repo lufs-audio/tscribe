@@ -17,7 +17,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::{Frame, Terminal};
 use std::io::{self, Stdout};
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct AppState {
     theme: Theme,
@@ -26,6 +26,11 @@ struct AppState {
     port: u16,
     job_id: String,
     latest: Option<PollOutcome>,
+    /// When THIS TUI first observed the job as `running`. NOT when the job
+    /// truly started running (the real server doesn't expose that as a live
+    /// value -- see `running_elapsed_s`'s doc comment for why
+    /// `JobSnapshot::elapsed_s()` can't be used for this).
+    running_since: Option<Instant>,
     log: String,
 }
 
@@ -38,13 +43,39 @@ impl AppState {
             port,
             job_id,
             latest: None,
+            running_since: None,
             log: "connecting…".to_string(),
         }
     }
 
     fn apply(&mut self, outcome: PollOutcome) {
-        self.log = describe(&outcome, &self.job_id);
+        if let PollOutcome::Snapshot(s) = &outcome {
+            if s.status == "running" && self.running_since.is_none() {
+                self.running_since = Some(Instant::now());
+            }
+        }
+        self.log = describe(&outcome, &self.job_id, self.running_elapsed_s());
         self.latest = Some(outcome);
+    }
+
+    /// Wall-clock time since THIS TUI first observed the job as `running` --
+    /// deliberately NOT derived from `JobSnapshot::elapsed_s()`
+    /// (`updated_at - created_at`). The real server (`jobs.py`) only calls
+    /// `touch()` -- which is what advances `updated_at` -- once entering
+    /// `running` and once more at `done`/`failed`; it is never touched as a
+    /// heartbeat during the potentially hours-long transcription run in
+    /// between. So `elapsed_s()` stays essentially frozen at "a few seconds"
+    /// for the entire run this tool exists to watch, which is a real bug,
+    /// not a nitpick, for a tool whose motivating case is a four-hour job.
+    /// This local measurement is honest about its own limit too: for a job
+    /// that was already running before this TUI attached, it understates
+    /// the job's true total runtime -- an inherent consequence of the
+    /// server not exposing a live elapsed value, not something this client
+    /// can paper over. `describe`/`draw_snapshot` say "since first observed"
+    /// rather than implying otherwise.
+    fn running_elapsed_s(&self) -> f64 {
+        self.running_since
+            .map_or(0.0, |t| t.elapsed().as_secs_f64())
     }
 
     /// The masthead's right-hand status word + its color. Always paired with
@@ -87,11 +118,11 @@ fn short_id(id: &str) -> String {
     }
 }
 
-fn describe(outcome: &PollOutcome, job_id: &str) -> String {
+fn describe(outcome: &PollOutcome, job_id: &str, running_elapsed_s: f64) -> String {
     match outcome {
         PollOutcome::Snapshot(s) => match s.status.as_str() {
             "queued" => "queued — waiting to start".to_string(),
-            "running" => format!("running · {:.0}s elapsed", s.elapsed_s()),
+            "running" => format!("running · {running_elapsed_s:.0}s since first observed"),
             "done" if s.verified => format!("done · verified · {:.0}s", s.elapsed_s()),
             "done" => format!("done · NOT verified · {:.0}s", s.elapsed_s()),
             "failed" => format!(
@@ -363,7 +394,13 @@ fn draw_body(frame: &mut Frame, area: Rect, state: &AppState) {
                 Style::default().fg(theme.dim),
             ));
         }
-        Some(PollOutcome::Snapshot(snap)) => draw_snapshot(&mut lines, snap, &theme, &state.job_id),
+        Some(PollOutcome::Snapshot(snap)) => draw_snapshot(
+            &mut lines,
+            snap,
+            &theme,
+            &state.job_id,
+            state.running_elapsed_s(),
+        ),
     }
 
     frame.render_widget(Paragraph::new(lines), area);
@@ -374,6 +411,7 @@ fn draw_snapshot(
     snap: &JobSnapshot,
     theme: &Theme,
     expected_id: &str,
+    running_elapsed_s: f64,
 ) {
     // Trust, but verify: the server is asked for a specific job id, so its
     // response claiming to be about a DIFFERENT id (a proxy/cache bug, a
@@ -398,16 +436,36 @@ fn draw_snapshot(
         return;
     }
 
-    let (word, color) = match snap.status.as_str() {
-        "queued" => ("QUEUED".to_string(), theme.dim),
-        "running" => ("RUNNING".to_string(), theme.running),
-        "done" if snap.verified => ("DONE ✓ VERIFIED".to_string(), theme.done),
-        "done" => ("DONE, NOT VERIFIED".to_string(), theme.failed),
-        "failed" => ("FAILED ✗".to_string(), theme.failed),
-        other => (other.to_uppercase(), theme.dim),
+    // `running`'s elapsed figure is measured locally (see
+    // `AppState::running_elapsed_s`'s doc comment for why: the real server
+    // never updates `updated_at` during the run itself, only at its start
+    // and end) and says so explicitly, rather than silently passing off a
+    // frozen or understated number as the job's true total runtime.
+    let (word, color, elapsed_display, elapsed_suffix) = match snap.status.as_str() {
+        "queued" => ("QUEUED".to_string(), theme.dim, snap.elapsed_s(), ""),
+        "running" => (
+            "RUNNING".to_string(),
+            theme.running,
+            running_elapsed_s,
+            " (since first observed)",
+        ),
+        "done" if snap.verified => (
+            "DONE ✓ VERIFIED".to_string(),
+            theme.done,
+            snap.elapsed_s(),
+            "",
+        ),
+        "done" => (
+            "DONE, NOT VERIFIED".to_string(),
+            theme.failed,
+            snap.elapsed_s(),
+            "",
+        ),
+        "failed" => ("FAILED ✗".to_string(), theme.failed, snap.elapsed_s(), ""),
+        other => (other.to_uppercase(), theme.dim, snap.elapsed_s(), ""),
     };
     lines.push(Line::styled(
-        format!("{word} · {:.0}s", snap.elapsed_s()),
+        format!("{word} · {elapsed_display:.0}s{elapsed_suffix}"),
         Style::default().fg(color).add_modifier(Modifier::BOLD),
     ));
     lines.push(Line::raw(""));
@@ -567,10 +625,12 @@ mod tests {
         let verified = describe(
             &PollOutcome::Snapshot(Box::new(snapshot("done", true))),
             "job",
+            0.0,
         );
         let unverified = describe(
             &PollOutcome::Snapshot(Box::new(snapshot("done", false))),
             "job",
+            0.0,
         );
         assert_ne!(verified, unverified);
         assert!(verified.contains("verified"));
@@ -579,10 +639,10 @@ mod tests {
 
     #[test]
     fn describe_reports_each_real_error_outcome_distinctly() {
-        let not_found = describe(&PollOutcome::NotFound, "abc");
-        let auth = describe(&PollOutcome::AuthFailed, "abc");
-        let misconfigured = describe(&PollOutcome::ServerMisconfigured, "abc");
-        let unreachable = describe(&PollOutcome::Unreachable("refused".into()), "abc");
+        let not_found = describe(&PollOutcome::NotFound, "abc", 0.0);
+        let auth = describe(&PollOutcome::AuthFailed, "abc", 0.0);
+        let misconfigured = describe(&PollOutcome::ServerMisconfigured, "abc", 0.0);
+        let unreachable = describe(&PollOutcome::Unreachable("refused".into()), "abc", 0.0);
         assert!(not_found.contains("abc"));
         assert!(auth.to_lowercase().contains("auth"));
         assert!(misconfigured.to_lowercase().contains("api key"));
@@ -651,7 +711,7 @@ mod tests {
         let snap = snapshot("done", true); // id is "abcdef0123456789"
         let theme = Theme::lufs();
         let mut lines = Vec::new();
-        draw_snapshot(&mut lines, &snap, &theme, "some-other-job-id");
+        draw_snapshot(&mut lines, &snap, &theme, "some-other-job-id", 0.0);
         let text = render_text(&lines);
         assert!(text.contains("not the requested"));
         // Must NOT proceed to render the (mismatched) job's own status/report
@@ -664,10 +724,60 @@ mod tests {
         let snap = snapshot("done", true);
         let theme = Theme::lufs();
         let mut lines = Vec::new();
-        draw_snapshot(&mut lines, &snap, &theme, "abcdef0123456789");
+        draw_snapshot(&mut lines, &snap, &theme, "abcdef0123456789", 0.0);
         let text = render_text(&lines);
         assert!(text.contains("VERIFIED"));
         assert!(!text.contains("not the requested"));
+    }
+
+    #[test]
+    fn draw_snapshot_shows_the_locally_tracked_running_elapsed_not_the_frozen_server_value() {
+        // Regression test for a real bug an independent audit caught: the
+        // server's own `updated_at - created_at` (`JobSnapshot::elapsed_s`)
+        // barely moves during `running` (`jobs.py` only touches it at the
+        // start and end of the run, never during), so passing THAT into the
+        // running branch would show a number frozen near zero for an entire
+        // multi-hour job. The locally-tracked value must be what's shown.
+        let mut snap = snapshot("running", false);
+        // Server-side elapsed_s() would be tiny here (created_at ~= updated_at
+        // at the moment `running` began) -- if this leaked into the display
+        // instead of the local value, the test below would catch it.
+        snap.updated_at = snap.created_at + 0.5;
+        let theme = Theme::lufs();
+        let mut lines = Vec::new();
+        draw_snapshot(&mut lines, &snap, &theme, "abcdef0123456789", 4321.0);
+        let text = render_text(&lines);
+        assert!(
+            text.contains("4321s"),
+            "expected the locally-tracked running elapsed to appear, got: {text}"
+        );
+        assert!(text.contains("since first observed"));
+        assert!(!text.contains(&format!("{:.0}s", snap.elapsed_s())));
+    }
+
+    #[test]
+    fn app_state_tracks_running_since_from_first_observation_and_it_grows_with_real_time() {
+        let mut state = AppState::new("h".into(), 1, "job".into(), Theme::lufs());
+        assert_eq!(state.running_elapsed_s(), 0.0);
+
+        state.apply(PollOutcome::Snapshot(Box::new(snapshot("queued", false))));
+        assert_eq!(
+            state.running_elapsed_s(),
+            0.0,
+            "must not start the clock before the job is actually running"
+        );
+
+        state.apply(PollOutcome::Snapshot(Box::new(snapshot("running", false))));
+        let first = state.running_elapsed_s();
+        std::thread::sleep(Duration::from_millis(50));
+        // A second `running` poll must NOT reset the clock -- it should keep
+        // counting from the first observation, not restart every poll.
+        state.apply(PollOutcome::Snapshot(Box::new(snapshot("running", false))));
+        let second = state.running_elapsed_s();
+        assert!(
+            second > first,
+            "expected running_elapsed_s to grow with real time: first={first}, second={second}"
+        );
     }
 
     #[test]
@@ -691,7 +801,7 @@ mod tests {
         });
         let theme = Theme::lufs();
         let mut lines = Vec::new();
-        draw_snapshot(&mut lines, &snap, &theme, "abcdef0123456789");
+        draw_snapshot(&mut lines, &snap, &theme, "abcdef0123456789", 0.0);
         let text = render_text(&lines);
         assert!(text.contains("coverage"));
         assert!(text.contains("only covered 62% of source audio"));

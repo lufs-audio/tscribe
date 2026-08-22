@@ -180,7 +180,20 @@ fn poll_inner(host: &str, port: u16, api_key: &str, job_id: &str) -> std::io::Re
     let status_code = parse_status_code(&status_line).unwrap_or(0);
 
     let mut content_length: Option<usize> = None;
+    let mut header_count = 0u32;
     loop {
+        // A malformed/malicious server that never sends a terminating blank
+        // line would otherwise keep this loop reading forever (bounded only
+        // by the socket read timeout, not by anything here); a real job
+        // response has a handful of headers, so cap well above that rather
+        // than trust the server to behave.
+        header_count += 1;
+        if header_count > 200 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "too many response headers (over 200) without a terminating blank line",
+            ));
+        }
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
             break; // connection closed before headers finished
@@ -194,14 +207,40 @@ fn poll_inner(host: &str, port: u16, api_key: &str, job_id: &str) -> std::io::Re
         }
     }
 
+    // A job-status response is JSON text (even with an embedded transcript,
+    // realistically well under a few MB) -- a `Content-Length` claiming
+    // otherwise is either a bug or hostile, and blindly `Vec::resize`-ing to
+    // an attacker-chosen size is a real crash (allocator abort, not a
+    // catchable panic) rather than a slow path. Cap generously above any
+    // legitimate response, then bound the no-`Content-Length` fallback read
+    // the same way -- an unbounded `read_to_end` from a server that never
+    // closes the connection is the same vulnerability without the header.
+    const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
     let mut body = Vec::new();
     match content_length {
+        Some(n) if n > MAX_RESPONSE_BYTES => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Content-Length {n} exceeds the {MAX_RESPONSE_BYTES}-byte sane maximum for a job-status response"
+                ),
+            ));
+        }
         Some(n) => {
             body.resize(n, 0);
             reader.read_exact(&mut body)?;
         }
         None => {
-            reader.read_to_end(&mut body)?;
+            let mut limited = (&mut reader).take(MAX_RESPONSE_BYTES as u64);
+            limited.read_to_end(&mut body)?;
+            if body.len() == MAX_RESPONSE_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "response body exceeded the {MAX_RESPONSE_BYTES}-byte sane maximum with no Content-Length given"
+                    ),
+                ));
+            }
         }
     }
     let body_str = String::from_utf8_lossy(&body);
