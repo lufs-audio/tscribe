@@ -350,6 +350,45 @@ def test_bootstrap_declined_overwrite_is_interrupted(tmp_path):
     assert main(["--config", str(cfg_path), "bootstrap"]) == ExitCode.INTERRUPTED
 
 
+def test_summarize_empty_input_is_usage_error(local_client_config, monkeypatch):
+    monkeypatch.setattr("sys.stdin.read", lambda: "")
+    code = main(["--config", str(local_client_config), "summarize"])
+    assert code == ExitCode.USAGE
+
+
+def test_summarize_missing_file_is_usage_error(local_client_config):
+    code = main(["--config", str(local_client_config), "summarize", "/nonexistent/path/file.txt"])
+    assert code == ExitCode.USAGE
+
+
+def test_summarize_missing_remote_config_is_config_invalid(local_client_config, monkeypatch):
+    monkeypatch.setattr("sys.stdin.read", lambda: "Some transcript text to summarize.")
+    code = main(["--config", str(local_client_config), "summarize"])
+    assert code == ExitCode.CONFIG_INVALID
+
+
+def test_summarize_success_with_remote(tmp_path, monkeypatch, capsys):
+    cfg_path = tmp_path / "tscribe.yaml"
+    cfg_path.write_text(
+        "mode: client\n"
+        "backend: local\n"
+        "remote:\n"
+        "  endpoint: https://api.example.com/v1\n"
+        "  api_key_env: TEST_KEY\n"
+    )
+    monkeypatch.setenv("TEST_KEY", "secret")
+    monkeypatch.setattr(
+        "tscribe.cli.commands.core_summarize",
+        lambda text, cfg, obsidian_format=False: f"Summary: {text[:10]}",
+    )
+    monkeypatch.setattr("sys.stdin.read", lambda: "Lecture notes transcript")
+    code = main(["--config", str(cfg_path), "--json", "summarize"])
+    assert code == ExitCode.SUCCESS
+    out = json.loads(capsys.readouterr().out)
+    assert out["status"] == "success"
+    assert out["data"]["summary"] == "Summary: Lecture no"
+
+
 def test_unhandled_keyboard_interrupt_maps_to_interrupted(local_client_config, monkeypatch):
     """A generic safety net at main()'s dispatch level, independent of any
     specific command's own handling -- simulates an interrupt raised from

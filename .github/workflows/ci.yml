@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: [self-hosted, lufs]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (python3.12, ffmpeg)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends python3.12 python3.12-venv ffmpeg
+
+      - name: Create venv and install tscribe (all extras + dev)
+        run: |
+          python3.12 -m venv .venv
+          . .venv/bin/activate
+          pip install --upgrade pip
+          pip install -e ".[all,dev]"
+
+      - name: ruff check
+        run: |
+          . .venv/bin/activate
+          ruff check .
+
+      - name: ruff format --check
+        run: |
+          . .venv/bin/activate
+          ruff format --check .
+
+      - name: pytest
+        run: |
+          . .venv/bin/activate
+          PYTHONPATH=src pytest tests/ -v

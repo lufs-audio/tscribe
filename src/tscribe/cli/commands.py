@@ -112,7 +112,15 @@ def cmd_transcribe(cfg: RuntimeConfig, files: list[str], *, do_summarize: bool) 
             if not job_result.verified:
                 any_violation = True
             elif do_summarize and job_result.transcript:
-                entry["summary"] = core_summarize(job_result.transcript, cfg)
+                if cfg.remote is None:
+                    entry["summary_error"] = (
+                        "summarize requires a 'remote:' section in tscribe.yaml"
+                    )
+                else:
+                    try:
+                        entry["summary"] = core_summarize(job_result.transcript, cfg)
+                    except Exception as exc:
+                        entry["summary_error"] = str(exc)
             results.append(entry)
 
     if any_hard_error and not any_violation:
@@ -182,7 +190,18 @@ def cmd_summarize(cfg: RuntimeConfig, *, file: str | None, obsidian: bool) -> Cl
     if not text.strip():
         return error("no input text (pass a file argument or pipe text via stdin)", ExitCode.USAGE)
 
-    summary = core_summarize(text, cfg, obsidian_format=obsidian)
+    if cfg.remote is None:
+        return error(
+            "summarize requires a 'remote:' section in tscribe.yaml (endpoint + api_key_env)",
+            ExitCode.CONFIG_INVALID,
+        )
+
+    try:
+        summary = core_summarize(text, cfg, obsidian_format=obsidian)
+    except RuntimeError as exc:
+        return error(str(exc), ExitCode.CONFIG_INVALID)
+    except Exception as exc:
+        return error(f"summarization failed: {exc}", ExitCode.BACKEND_UNREACHABLE)
     return success({"summary": summary})
 
 
@@ -233,9 +252,8 @@ def cmd_capture_start(cfg: RuntimeConfig, *, dry_run: bool, duration: float | No
         "dry_run": dry_run,
     }
     if not dry_run:
-        exit_code = session.stop() if duration is not None else None
-        if exit_code is not None:
-            data["ffmpeg_exit_code"] = exit_code
+        exit_code = session.wait()
+        data["ffmpeg_exit_code"] = exit_code
     return success(data)
 
 

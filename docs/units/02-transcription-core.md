@@ -24,18 +24,23 @@ class VerificationCheck(TypedDict):
     ok: bool
     detail: str
 
+
 class Report:
     ok: bool
     checks: list[VerificationCheck]
     failures: list[str]
 
+
 class ContractViolation(Exception):
-    transcript: str   # unverified, retained for audit
+    transcript: str  # unverified, retained for audit
     report: Report
+
 
 def transcribe(audio_path: str, cfg: RuntimeConfig) -> str: ...
 
+
 def transcribe_class(input_path: str, output_path: str, cfg: RuntimeConfig) -> "ClassResult": ...
+
 
 def summarize(transcript: str, cfg: RuntimeConfig, obsidian_format: bool = False) -> str: ...
 ```

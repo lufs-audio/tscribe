@@ -84,6 +84,18 @@ class CaptureSession:
             return None
         return self.process.poll()
 
+    def wait(self, timeout_s: float | None = None) -> int:
+        """Wait for capture to complete (e.g. when duration_s was specified)
+        or until interrupted by KeyboardInterrupt, in which case stop() is
+        called for clean segment finalization."""
+        if self.process is None:
+            return 0
+        try:
+            self.process.wait(timeout=timeout_s)
+        except KeyboardInterrupt:
+            return self.stop()
+        return self.process.returncode if self.process.returncode is not None else 0
+
     def stop(self, timeout_s: float = 10.0) -> int:
         """Stop capture the same way Ctrl-C does for the source scripts: a
         graceful terminate (ffmpeg finalizes the current segment's WAV header
