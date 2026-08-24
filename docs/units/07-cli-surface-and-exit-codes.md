@@ -33,6 +33,7 @@ class ExitCode(IntEnum):
     JOB_NOT_FOUND = 6
     INTERRUPTED = 7
 
+
 class CliResponse(TypedDict, total=False):
     status: Literal["success", "error"]
     data: dict

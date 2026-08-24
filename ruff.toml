@@ -3,7 +3,21 @@ target-version = "py312"
 
 [lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = []
+ignore = [
+    # Mode/Backend/RemoteKind (tscribe.config) are `class X(str, Enum)` by a
+    # deliberate Unit 01 design choice, not an oversight -- StrEnum (py3.11+)
+    # would work too, but the switch wasn't part of any unit's spec and later
+    # units (Boombox/Unit 05) already reviewed and declined to change Unit
+    # 01's shipped code for a style nit. Left as-is on purpose.
+    "UP042",
+    # ContractViolation (tscribe.core.class_pipeline.verify) predates this
+    # rule being enabled and is referenced by this exact name across every
+    # unit -- core, server, client, bootstrap, cli, and every test file that
+    # exercises the evidence-retention contract. Renaming to
+    # ContractViolationError now would be a wide, purely cosmetic rename with
+    # real risk of a missed call site; not worth it for a naming convention.
+    "N818",
+]
 
 [format]
 quote-style = "double"

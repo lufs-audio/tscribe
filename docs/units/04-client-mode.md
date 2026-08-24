@@ -25,11 +25,14 @@ class TscribeClient(Protocol):
     def submit(self, source: "AudioSource") -> "JobHandle": ...
     def poll(self, handle: "JobHandle") -> "JobResult": ...
 
+
 class LocalClient(TscribeClient):
     """backend: local — calls Unit 02 in-process, no network."""
 
+
 class RemoteServerClient(TscribeClient):
     """backend: remote, endpoint is a tscribe server — HTTP against Unit 03's contract."""
+
 
 class RemoteInferenceClient(TscribeClient):
     """backend: remote, endpoint is a bare inference endpoint — Unit 02 in-process, remote inference only."""
