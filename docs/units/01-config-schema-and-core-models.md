@@ -27,21 +27,25 @@ class Mode(str, Enum):
     SERVER = "server"
     CLIENT = "client"
 
+
 class Backend(str, Enum):
     LOCAL = "local"
     REMOTE = "remote"
 
+
 @dataclass
 class RemoteConfig:
-    endpoint: str            # name of the env var holding the secret
+    endpoint: str  # name of the env var holding the secret
     api_key_env: str
     transcription_model: str | None = None
 
+
 @dataclass
 class LocalConfig:
-    model_size: str = "small"   # tiny|base|small|medium|large
+    model_size: str = "small"  # tiny|base|small|medium|large
     device: str = "cpu"
     compute_type: str = "int8"
+
 
 @dataclass
 class ChunkingConfig:
@@ -49,10 +53,12 @@ class ChunkingConfig:
     workers: int = 2
     snap_window_s: int = 10
 
+
 @dataclass
 class SummarizationConfig:
     model: str = "lightweight"
     prompt: str | None = None
+
 
 @dataclass
 class RuntimeConfig:
@@ -62,6 +68,7 @@ class RuntimeConfig:
     local: LocalConfig
     chunking: ChunkingConfig
     summarization: SummarizationConfig
+
 
 def load_config(path: str | None = None) -> RuntimeConfig: ...
 ```
