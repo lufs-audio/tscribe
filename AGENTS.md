@@ -63,7 +63,8 @@ file's "Boundaries" section before proceeding.
    reviewed but could not run — never claim execution-tested status you
    don't have. `docs/units/05-capture-integration.md` and
    `docs/units/06-bootstrap-command.md` model this explicitly; follow the
-   same standard for new work.
+   same standard for new work. See [`docs/hardware-capture-test-plan.md`](./docs/hardware-capture-test-plan.md)
+   for the step-by-step physical hardware verification runbook.
 5. **`import the module, not the name`** when you need a test seam. Several
    modules in this repo (`server/jobs.py`, `client/local.py`,
    `client/remote_inference.py`) deliberately do

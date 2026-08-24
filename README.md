@@ -143,6 +143,9 @@ code-reviewed-only in this environment (real PipeWire capture, the Windows
 capture path, and real faster-whisper inference all need hardware/weights
 this repo's own CI doesn't have — see each unit's own honesty notes).
 
+For instructions on executing a full hardware capture and microphone testing pass,
+see [`docs/hardware-capture-test-plan.md`](./docs/hardware-capture-test-plan.md).
+
 ## Where this came from
 
 `tscribe` unifies three previously-separate repos (see `SPEC.md` §1-§2 for
