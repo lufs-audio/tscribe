@@ -27,6 +27,18 @@ that only ever talks to a GPU host or another `tscribe` server — never pulls
 in FastAPI, Google API clients, or ML dependencies it doesn't need. See
 `pyproject.toml`'s `[project.optional-dependencies]` for the exact split.
 
+## Terminal monitor (`tui/`)
+
+A separate Rust crate, `tui/`, provides `tscribe-tui` — a read-only terminal
+monitor for a job in progress (`GET /jobs/{id}`: status, elapsed time, and
+the verification report). It isn't part of this Python package or its `uv`
+build; see `tui/README.md` for why, and how to build/run it. Follows the
+cross-tool TUI style guide locked for LUFS's terminal tools
+(`lufs-audio/bplate` → `references/studies/tui-style-directions/`), the same
+one `lufs-audio/lrex`'s own `tui` follows — one interaction shape, one set of
+three themes, shared across the family. Per `SPEC.md` §7, tscribe's own spec
+explicitly deferred TUI design to that guide rather than designing one here.
+
 ## Quickstart
 
 ```bash
