@@ -1,18 +1,22 @@
-"""tscribe.config — the tscribe.yaml schema, loader, and validator.
+"""tscribe.config — the tscribe config schema, loader, and validator.
 
 Every other unit that needs configuration imports RuntimeConfig from here.
-This module owns exactly one thing: turning a tscribe.yaml file (plus CLI
-overrides) into a validated, typed RuntimeConfig object. It does not know
+This module owns exactly one thing: turning a config file — TOML
+(``.toml``, via the stdlib ``tomllib``) or legacy YAML (``.yaml``/``.yml``),
+optionally layered as a user-global base plus a cwd project override — into a
+validated, typed RuntimeConfig object (plus CLI overrides). It does not know
 about transcription, HTTP, or the CLI's argument parser — see SPEC.md's
 "Boundaries" note for each unit that consumes this one.
 
-Precedence order (documented, not implicit): CLI-flag overrides > env var
-(TSCRIBE_CONFIG for the file path only) > config file > dataclass default.
+Precedence order (documented, not implicit): CLI-flag overrides > explicit
+``--config`` path > env var (TSCRIBE_CONFIG for the file path only) > user
+base config + cwd project overlay > dataclass default.
 """
 
 from __future__ import annotations
 
 import os
+import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -22,6 +26,33 @@ import yaml
 
 DEFAULT_CONFIG_FILENAME = "tscribe.yaml"
 CONFIG_PATH_ENV_VAR = "TSCRIBE_CONFIG"
+
+# Cwd/base default filenames, in precedence order — `.toml` wins over the
+# legacy `.yaml` when both are present (Unit 01's acceptance criterion).
+DEFAULT_CONFIG_FILENAMES: list[str] = [
+    "tscribe.toml",
+    "tscribe.yaml",
+]
+
+# Project-local override filenames searched in the current working directory
+# (Unit 02). `.tscribe.*` (dot-prefixed, i.e. hidden) is preferred over the
+# non-dot form, and TOML over YAML within each, matching the lrex precedent.
+PROJECT_CONFIG_FILENAMES: list[str] = [
+    ".tscribe.toml",
+    "tscribe.toml",
+    ".tscribe.yaml",
+    "tscribe.yaml",
+]
+
+# User-global base config filenames searched in ~/.config/tscribe/ (Unit 02).
+# `config.toml` is the documented primary; the legacy `tscribe.yaml` name is
+# still honored so an existing global YAML setup keeps working.
+BASE_CONFIG_FILENAMES: list[str] = [
+    "config.toml",
+    "tscribe.toml",
+    "config.yaml",
+    "tscribe.yaml",
+]
 
 
 class ConfigError(Exception):
@@ -211,13 +242,55 @@ class RuntimeConfig:
 
 
 def _resolve_config_path(path: str | Path | None) -> Path:
-    """CLI-flag path > TSCRIBE_CONFIG env var > ./tscribe.yaml."""
+    """CLI-flag path > TSCRIBE_CONFIG env var > first existing
+    DEFAULT_CONFIG_FILENAMES in cwd > ./tscribe.toml.
+
+    `tscribe.toml` is checked before `tscribe.yaml` (Unit 01's acceptance
+    criterion), so a project that ships both gets the TOML one. When neither
+    exists yet, the TOML name is returned as the documented default so the
+    resulting "no config file found" message names the format we now prefer.
+    """
     if path is not None:
         return Path(path)
     env_path = os.environ.get(CONFIG_PATH_ENV_VAR)
     if env_path:
         return Path(env_path)
-    return Path.cwd() / DEFAULT_CONFIG_FILENAME
+    cwd = Path.cwd()
+    for name in DEFAULT_CONFIG_FILENAMES:
+        candidate = cwd / name
+        if candidate.exists():
+            return candidate
+    return cwd / DEFAULT_CONFIG_FILENAMES[0]
+
+
+def default_base_config_path() -> Path | None:
+    """Return ~/.config/tscribe/config.toml (or the legacy
+    ~/.config/tscribe/tscribe.yaml) if it exists, else None.
+
+    This is the user-global base of Unit 02's two-tier resolution: a config
+    placed here applies to every project without exporting $TSCRIBE_CONFIG.
+    """
+    base_dir = Path.home() / ".config" / "tscribe"
+    for name in BASE_CONFIG_FILENAMES:
+        candidate = base_dir / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def project_override_path(cwd: Path | None = None) -> Path | None:
+    """Return the first PROJECT_CONFIG_FILENAMES entry present in `cwd`
+    (defaults to the process cwd), else None.
+
+    A project-local override is a *partial* config: its keys are deep-merged
+    on top of the resolved base, so it only needs to state what it changes.
+    """
+    directory = Path(cwd) if cwd is not None else Path.cwd()
+    for name in PROJECT_CONFIG_FILENAMES:
+        candidate = directory / name
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -229,6 +302,50 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
         else:
             result[key] = value
     return result
+
+
+def load_config_text(raw_text: str, *, filename_hint: str = "tscribe.toml") -> dict[str, Any]:
+    """Parse raw config text into a plain dict, choosing the parser from the
+    filename extension: `.toml` via the stdlib `tomllib` (zero new
+    dependencies), `.yaml`/`.yml` via `yaml.safe_load` for backwards
+    compatibility. Anything else is rejected rather than guessed at.
+
+    Raises ConfigError (never a bare parser exception) for invalid syntax, a
+    non-mapping top level, or — for `.toml` specifically — a field name the
+    schema does not define, so a typo in a new TOML config fails loudly
+    instead of being silently ignored.
+    """
+    suffix = Path(filename_hint).suffix.lower()
+    if suffix == ".toml":
+        try:
+            data = tomllib.loads(raw_text)
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(f"{filename_hint} is not valid TOML: {exc}") from exc
+        _reject_unknown_fields(data, filename_hint)
+    elif suffix in (".yaml", ".yml"):
+        try:
+            data = yaml.safe_load(raw_text)
+        except yaml.YAMLError as exc:
+            raise ConfigError(f"{filename_hint} is not valid YAML: {exc}") from exc
+        data = data or {}
+    else:
+        raise ConfigError(
+            f"Unsupported config file extension {suffix!r} for {filename_hint} — "
+            f"use .toml, .yaml, or .yml."
+        )
+
+    if not isinstance(data, dict):
+        raise ConfigError(f"{filename_hint} must contain a mapping at the top level.")
+    return data
+
+
+def _read_config_file(path: Path) -> dict[str, Any]:
+    """Read + parse one config file, translating I/O errors to ConfigError."""
+    try:
+        raw_text = path.read_text()
+    except OSError as exc:
+        raise ConfigError(f"Could not read {path}: {exc}") from exc
+    return load_config_text(raw_text, filename_hint=str(path))
 
 
 def _require(d: dict[str, Any], key: str, section: str) -> Any:
@@ -328,6 +445,47 @@ def _build_capture_config(raw: dict[str, Any] | None) -> CaptureConfig:
     )
 
 
+# Section name -> the dataclass that owns its fields. Used only to validate
+# `.toml` field names (see load_config_text); parse_config_dict itself stays
+# tolerant of extra keys, matching its long-shipped behavior.
+_SECTION_DATACLASSES: dict[str, type] = {
+    "remote": RemoteConfig,
+    "local": LocalConfig,
+    "chunking": ChunkingConfig,
+    "summarization": SummarizationConfig,
+    "server": ServerConfig,
+    "capture": CaptureConfig,
+}
+
+
+def _reject_unknown_fields(data: dict[str, Any], filename_hint: str) -> None:
+    """Raise ConfigError for any field name the schema does not define.
+
+    Applied to `.toml` only: TOML is the new format, so a mistyped key there
+    should fail loudly. Legacy `.yaml` keeps the historical lenient behavior
+    (unknown keys ignored) because strict backwards compatibility with
+    existing YAML configs is a hard requirement.
+    """
+    known_top = {f.name for f in fields(RuntimeConfig)}
+    unknown_top = sorted(set(data) - known_top)
+    if unknown_top:
+        raise ConfigError(
+            f"{filename_hint}: unknown top-level field(s) {unknown_top} — "
+            f"known fields: {sorted(known_top)}."
+        )
+    for section, section_cls in _SECTION_DATACLASSES.items():
+        section_data = data.get(section)
+        if not isinstance(section_data, dict):
+            continue
+        known = {f.name for f in fields(section_cls)}
+        unknown = sorted(set(section_data) - known)
+        if unknown:
+            raise ConfigError(
+                f"{filename_hint}: unknown field(s) {unknown} in '{section}' — "
+                f"known fields: {sorted(known)}."
+            )
+
+
 def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
     """The pure, testable core: dict in, RuntimeConfig out (or ConfigError).
 
@@ -355,31 +513,63 @@ def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
 def load_config(
     path: str | Path | None = None,
     overrides: dict[str, Any] | None = None,
+    *,
+    cwd: Path | None = None,
+    allow_project_layering: bool = True,
 ) -> RuntimeConfig:
-    """Load and validate tscribe.yaml, applying CLI-flag overrides on top.
+    """Resolve, layer, and validate a tscribe config, applying runtime
+    overrides last.
+
+    Resolution order (highest precedence first):
+
+    1. An explicit `path` (the CLI's ``--config``) — authoritative; when
+       `allow_project_layering` is False (the CLI's default for an explicit
+       path) the cwd project override is *not* merged on top.
+    2. ``$TSCRIBE_CONFIG`` — also authoritative and never layered, preserving
+       the historical "this exact file is the config" contract.
+    3. The user-global base (``~/.config/tscribe/config.toml`` or the legacy
+       ``tscribe.yaml``), with the cwd project override deep-merged on top
+       when `allow_project_layering` is True.
+    4. CLI `overrides` are deep-merged last, on top of whatever the above
+       produced.
 
     Raises ConfigError with a specific, human-readable reason for every
     documented failure mode — never a bare traceback from deep inside
-    yaml.safe_load or dataclass construction.
+    tomllib/yaml.safe_load or dataclass construction.
     """
-    resolved_path = _resolve_config_path(path)
+    directory = Path(cwd) if cwd is not None else Path.cwd()
+    env_path = os.environ.get(CONFIG_PATH_ENV_VAR)
 
-    if not resolved_path.exists():
-        raise ConfigError(
-            f"No config file found at {resolved_path}. "
-            f"Copy tscribe.example.yaml to {DEFAULT_CONFIG_FILENAME} and edit it, "
-            f"or pass --config <path>."
-        )
-
-    try:
-        raw_text = resolved_path.read_text()
-    except OSError as exc:
-        raise ConfigError(f"Could not read {resolved_path}: {exc}") from exc
-
-    try:
-        data = yaml.safe_load(raw_text) or {}
-    except yaml.YAMLError as exc:
-        raise ConfigError(f"{resolved_path} is not valid YAML: {exc}") from exc
+    if path is not None or env_path:
+        base_path = _resolve_config_path(path)
+        if not base_path.exists():
+            raise ConfigError(
+                f"No config file found at {base_path}. "
+                f"Copy tscribe.example.yaml to {DEFAULT_CONFIG_FILENAME} and edit it, "
+                f"or pass --config <path>."
+            )
+        data = _read_config_file(base_path)
+        # An explicit file is authoritative unless the caller opted into
+        # project layering (the CLI's --with-project-config). $TSCRIBE_CONFIG
+        # never layers, so a legacy single-file invocation is unchanged.
+        if allow_project_layering and path is not None:
+            overlay_path = project_override_path(directory)
+            if overlay_path is not None and overlay_path != base_path:
+                data = _deep_merge(data, _read_config_file(overlay_path))
+    else:
+        base_path = default_base_config_path()
+        data = _read_config_file(base_path) if base_path is not None else {}
+        overlay_path = project_override_path(directory) if allow_project_layering else None
+        if overlay_path is not None:
+            data = _deep_merge(data, _read_config_file(overlay_path))
+        if not data:
+            base_dir = Path.home() / ".config" / "tscribe"
+            raise ConfigError(
+                f"No config file found. Looked for {DEFAULT_CONFIG_FILENAMES} in "
+                f"{directory} and for {BASE_CONFIG_FILENAMES} in {base_dir}. "
+                f"Copy tscribe.example.yaml to {DEFAULT_CONFIG_FILENAME} and edit it, "
+                f"or pass --config <path>."
+            )
 
     if overrides:
         data = _deep_merge(data, overrides)
