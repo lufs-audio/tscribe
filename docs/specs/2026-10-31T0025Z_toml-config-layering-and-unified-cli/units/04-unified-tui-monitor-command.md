@@ -28,20 +28,31 @@ Unify the terminal monitor experience under the main `tscribe` CLI by adding `ts
 ```python
 # In src/tscribe/cli/main.py
 
-p_monitor = sub.add_parser("monitor", help="Watch a transcription job live in the terminal monitor (TUI).")
+p_monitor = sub.add_parser(
+    "monitor", help="Watch a transcription job live in the terminal monitor (TUI)."
+)
 p_monitor.add_argument("id", help="Job ID returned from POST /jobs or POST /jobs/upload")
-p_monitor.add_argument("--host", default=None, help="Server host (default: derived from remote.endpoint)")
-p_monitor.add_argument("--port", type=int, default=None, help="Server port (default: derived from remote.endpoint)")
-p_monitor.add_argument("--theme", choices=["lufs", "catppuccin", "mono"], default="lufs", help="TUI theme palette")
+p_monitor.add_argument(
+    "--host", default=None, help="Server host (default: derived from remote.endpoint)"
+)
+p_monitor.add_argument(
+    "--port", type=int, default=None, help="Server port (default: derived from remote.endpoint)"
+)
+p_monitor.add_argument(
+    "--theme", choices=["lufs", "catppuccin", "mono"], default="lufs", help="TUI theme palette"
+)
 
 # In src/tscribe/cli/commands.py
 
-def cmd_monitor(cfg: RuntimeConfig, *, job_id: str, host: str | None, port: int | None, theme: str) -> CliResponse:
+
+def cmd_monitor(
+    cfg: RuntimeConfig, *, job_id: str, host: str | None, port: int | None, theme: str
+) -> CliResponse:
     """Resolve endpoint parameters, locate tscribe-tui, and launch monitor."""
     ...
 ```
 
-## Boundaries
+## Boundaries — do NOT touch
 - **Touches:**
   - `src/tscribe/cli/main.py`
   - `src/tscribe/cli/commands.py`
@@ -51,6 +62,12 @@ def cmd_monitor(cfg: RuntimeConfig, *, job_id: str, host: str | None, port: int 
   - `tui/src/` (Rust crate source is unchanged; interface contract preserved)
   - `src/tscribe/core/`
   - `src/tscribe/server/`
+
+## Output
+- Modified: `src/tscribe/cli/main.py` (`monitor` and `jobs monitor` subparsers), `src/tscribe/cli/commands.py` (`cmd_monitor`).
+- Docs: `tui/README.md` — document `tscribe monitor <id>` as the supported entry point.
+- Tests added in `tests/cli/test_main.py`, named `test_monitor_command_*` so the Verification command selects them.
+- Commit message: `feat(cli): tscribe monitor <id> resolves config and launches the TUI`
 
 ## Verification
 ```bash

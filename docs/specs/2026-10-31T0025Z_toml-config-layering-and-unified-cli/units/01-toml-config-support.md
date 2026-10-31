@@ -27,17 +27,19 @@ DEFAULT_CONFIG_FILENAMES: list[str] = [
     "tscribe.yaml",
 ]
 
+
 def load_config_text(raw_text: str, *, filename_hint: str = "tscribe.toml") -> dict[str, Any]:
     """Parse raw text based on file extension (.toml vs .yaml/.yml).
     Raises ConfigError on syntax errors."""
     ...
+
 
 def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
     """Unchanged: validates raw dict into typed RuntimeConfig."""
     ...
 ```
 
-## Boundaries
+## Boundaries — do NOT touch
 - **Touches:**
   - `src/tscribe/config.py`
   - `tests/test_config.py`
@@ -45,6 +47,11 @@ def parse_config_dict(data: dict[str, Any]) -> RuntimeConfig:
   - `src/tscribe/cli/main.py`
   - `src/tscribe/server/`
   - `src/tscribe/core/`
+
+## Output
+- Modified: `src/tscribe/config.py` (`load_config_text`, `DEFAULT_CONFIG_FILENAMES`, config-path resolution).
+- Tests added in `tests/test_config.py`: equivalent YAML and TOML fixtures must construct an identical `RuntimeConfig`.
+- Commit message: `feat(config): native TOML config support via stdlib tomllib`
 
 ## Verification
 ```bash

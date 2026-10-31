@@ -30,13 +30,16 @@ PROJECT_CONFIG_FILENAMES: list[str] = [
     "tscribe.yaml",
 ]
 
+
 def default_base_config_path() -> Path | None:
     """Return ~/.config/tscribe/config.toml or ~/.config/tscribe/tscribe.yaml if exists."""
     ...
 
+
 def project_override_path(cwd: Path | None = None) -> Path | None:
     """Check cwd for .tscribe.toml, tscribe.toml, etc."""
     ...
+
 
 def load_config(
     path: str | Path | None = None,
@@ -49,7 +52,7 @@ def load_config(
     ...
 ```
 
-## Boundaries
+## Boundaries — do NOT touch
 - **Touches:**
   - `src/tscribe/config.py`
   - `tests/test_config.py`
@@ -57,6 +60,11 @@ def load_config(
   - `src/tscribe/cli/main.py`
   - `src/tscribe/core/`
   - `src/tscribe/server/`
+
+## Output
+- Modified: `src/tscribe/config.py` (`default_base_config_path`, `project_override_path`, `load_config` signature and deep-merge).
+- Tests added in `tests/test_config.py`, named `test_hierarchical_*` / `test_layering_*` so the Verification command selects them.
+- Commit message: `feat(config): hierarchical base + project-local config layering`
 
 ## Verification
 ```bash

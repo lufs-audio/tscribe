@@ -1,8 +1,10 @@
-# Phase Spec: TOML Configuration, Project Layering, CLI Overrides, and Unified TUI
+# SPEC — `tscribe` Phase 2: TOML Configuration, Project Layering, CLI Overrides, and Unified TUI
 
-- **Phase ID:** `2026-10-31T0025Z_toml-config-layering-and-unified-cli`
-- **Target Repo:** `lufs-audio/tscribe`
-- **Related Issues:** #4 (TUI dispatcher), aligns with LUFS cross-tool UX standards
+**Status:** Ready for Review  
+**Owner:** Daniel Ramirez  
+**Phase folder:** `docs/specs/2026-10-31T0025Z_toml-config-layering-and-unified-cli/`  
+**Target Repo:** `lufs-audio/tscribe`  
+**Related Issues:** #4 (TUI dispatcher), aligns with LUFS cross-tool UX standards
 
 ---
 
