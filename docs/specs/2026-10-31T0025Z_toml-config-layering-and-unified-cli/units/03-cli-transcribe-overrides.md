@@ -26,17 +26,22 @@ Add runtime configuration override flags (`--backend`, `--endpoint`, `--model`, 
 p_transcribe = sub.add_parser("transcribe", help="Transcribe one or more audio files.")
 p_transcribe.add_argument("files", nargs="+", help="Audio file paths...")
 p_transcribe.add_argument("--summarize", action="store_true", help="Also summarize...")
-p_transcribe.add_argument("--backend", choices=["local", "remote"], default=None, help="Override backend mode")
+p_transcribe.add_argument(
+    "--backend", choices=["local", "remote"], default=None, help="Override backend mode"
+)
 p_transcribe.add_argument("--endpoint", type=str, default=None, help="Override remote endpoint URL")
 p_transcribe.add_argument("--model", type=str, default=None, help="Override model name or size")
-p_transcribe.add_argument("--device", choices=["cpu", "cuda"], default=None, help="Override local compute device")
+p_transcribe.add_argument(
+    "--device", choices=["cpu", "cuda"], default=None, help="Override local compute device"
+)
+
 
 def _build_transcribe_overrides(args: argparse.Namespace) -> dict[str, Any]:
     """Translate non-None CLI flags into nested dictionary for load_config."""
     ...
 ```
 
-## Boundaries
+## Boundaries — do NOT touch
 - **Touches:**
   - `src/tscribe/cli/main.py`
   - `tests/cli/test_main.py`
@@ -44,6 +49,11 @@ def _build_transcribe_overrides(args: argparse.Namespace) -> dict[str, Any]:
   - `src/tscribe/core/`
   - `src/tscribe/server/`
   - `src/tscribe/client/`
+
+## Output
+- Modified: `src/tscribe/cli/main.py` (`p_transcribe` flags, `_build_transcribe_overrides`).
+- Tests added in `tests/cli/test_main.py`, named `test_transcribe_overrides_*` so the Verification command selects them.
+- Commit message: `feat(cli): runtime config overrides on tscribe transcribe`
 
 ## Verification
 ```bash

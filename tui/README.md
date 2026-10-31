@@ -46,6 +46,29 @@ signals state by color alone.
 
 Press `q` or Esc to quit. Nothing you do in this TUI affects the job.
 
+## Launch it from the `tscribe` CLI (preferred)
+
+You normally don't invoke the binary directly. `tscribe monitor <job_id>` (and
+its alias `tscribe jobs monitor <job_id>`) resolves the host, port, and API
+key from the active config and launches this TUI for you:
+
+```sh
+tscribe monitor <job_id>
+tscribe jobs monitor <job_id>          # identical
+tscribe monitor <job_id> --theme mono  # explicit overrides still win
+```
+
+It derives `--host`/`--port` from `remote.endpoint` in `tscribe.yaml` /
+`tscribe.toml` (e.g. `http://carnyx:6390` → `--host carnyx --port 6390`) and
+sends the key from `os.environ[remote.api_key_env]`, so you never repeat
+connection details you already configured. `--host`, `--port`, and
+`--theme lufs|catppuccin|mono` override the derived values explicitly.
+
+The binary is located on `$PATH` first, then at the relative build path
+`tui/target/release/tscribe-tui`. If neither is found, `tscribe monitor`
+exits `2` (USAGE) with instructions to build it. The direct `cargo`
+invocation above remains supported for development.
+
 ## What it targets today, and what changes later
 
 This client is built directly against `tscribe-class-carnyx`'s real,

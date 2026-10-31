@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 from tscribe import bootstrap as bootstrap_mod
 from tscribe.capture.finalize import FinalizeError
@@ -47,8 +48,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=str,
         default=None,
-        help="Path to tscribe.yaml (default: $TSCRIBE_CONFIG, then ./tscribe.yaml). "
-        "For `bootstrap`, this is the path bootstrap writes to instead of reads from.",
+        help="Path to a tscribe config file (.toml/.yaml). Default: $TSCRIBE_CONFIG, "
+        "else ~/.config/tscribe/config.toml plus any cwd project override "
+        "(.tscribe.toml / tscribe.toml). For `bootstrap`, this is the path "
+        "bootstrap writes to instead of reads from.",
+    )
+    parser.add_argument(
+        "--with-project-config",
+        action="store_true",
+        help="With --config, also deep-merge the cwd project override "
+        "(.tscribe.toml / tscribe.toml) on top of it.",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -63,6 +72,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_transcribe.add_argument(
         "--summarize", action="store_true", help="Also summarize each verified transcript."
+    )
+    p_transcribe.add_argument(
+        "--backend",
+        choices=["local", "remote"],
+        default=None,
+        help="Override the configured backend for this invocation.",
+    )
+    p_transcribe.add_argument(
+        "--endpoint",
+        type=str,
+        default=None,
+        help="Override remote.endpoint for this invocation.",
+    )
+    p_transcribe.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Override the model (remote.transcription_model, or local.model_size locally).",
+    )
+    p_transcribe.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default=None,
+        help="Override local.device for this invocation.",
+    )
+
+    p_monitor = sub.add_parser(
+        "monitor", help="Watch a transcription job live in the terminal monitor (TUI)."
+    )
+    p_monitor.add_argument("id", help="Job ID returned from POST /jobs or POST /jobs/upload")
+    p_monitor.add_argument(
+        "--host", default=None, help="Server host (default: derived from remote.endpoint)"
+    )
+    p_monitor.add_argument(
+        "--port", type=int, default=None, help="Server port (default: derived from remote.endpoint)"
+    )
+    p_monitor.add_argument(
+        "--theme",
+        choices=["lufs", "catppuccin", "mono"],
+        default="lufs",
+        help="TUI theme palette",
     )
 
     sub.add_parser("devices", help="List available microphone input devices.")
@@ -137,15 +187,77 @@ def build_parser() -> argparse.ArgumentParser:
         "status", help="GET /jobs/{id} on a configured remote tscribe server."
     )
     p_jobs_status.add_argument("id")
+    p_jobs_monitor = jobs_sub.add_parser(
+        "monitor", help="Alias for `tscribe monitor <id>` — launch the TUI for a job."
+    )
+    p_jobs_monitor.add_argument("id", help="Job ID returned from POST /jobs or POST /jobs/upload")
+    p_jobs_monitor.add_argument(
+        "--host", default=None, help="Server host (default: derived from remote.endpoint)"
+    )
+    p_jobs_monitor.add_argument(
+        "--port", type=int, default=None, help="Server port (default: derived from remote.endpoint)"
+    )
+    p_jobs_monitor.add_argument(
+        "--theme",
+        choices=["lufs", "catppuccin", "mono"],
+        default="lufs",
+        help="TUI theme palette",
+    )
 
     return parser
 
 
-def _load_cfg_or_error(config_path: str | None):
+def _load_cfg_or_error(
+    config_path: str | None,
+    *,
+    overrides: dict[str, Any] | None = None,
+    allow_project_layering: bool = True,
+):
     try:
-        return load_config(path=config_path), None
+        return (
+            load_config(
+                path=config_path,
+                overrides=overrides,
+                allow_project_layering=allow_project_layering,
+            ),
+            None,
+        )
     except ConfigError as exc:
         return None, error(str(exc), ExitCode.CONFIG_INVALID)
+
+
+def _build_transcribe_overrides(
+    args: argparse.Namespace, *, backend: Backend | None = None
+) -> dict[str, Any]:
+    """Translate non-None `tscribe transcribe` flags into the nested dict
+    `load_config(overrides=...)` expects.
+
+    `--backend`, `--endpoint`, and `--device` map straight onto their config
+    sections. `--model` is ambiguous on its own — it means
+    `remote.transcription_model` for a remote backend and `local.model_size`
+    for a local one — so the caller passes the already-resolved `backend`
+    (explicit `--backend`, else the config's own value). Without it, `--model`
+    is applied to whichever section the explicit `--backend` names; if neither
+    is available it is omitted from this pass and the caller re-resolves once
+    the effective backend is known.
+    """
+    overrides: dict[str, Any] = {}
+    if args.backend is not None:
+        overrides["backend"] = args.backend
+    if args.endpoint is not None:
+        overrides.setdefault("remote", {})["endpoint"] = args.endpoint
+    if args.device is not None:
+        overrides.setdefault("local", {})["device"] = args.device
+
+    if args.model is not None:
+        effective = backend
+        if effective is None and args.backend is not None:
+            effective = Backend(args.backend)
+        if effective == Backend.REMOTE:
+            overrides.setdefault("remote", {})["transcription_model"] = args.model
+        elif effective == Backend.LOCAL:
+            overrides.setdefault("local", {})["model_size"] = args.model
+    return overrides
 
 
 def _dispatch(args: argparse.Namespace):
@@ -166,15 +278,36 @@ def _dispatch(args: argparse.Namespace):
         )
         return commands.cmd_bootstrap(options)
 
+    # Explicit --config is authoritative: the cwd project override is layered
+    # on top only when --with-project-config is passed (Unit 02). With no
+    # --config, the user-global base + cwd project overlay resolve normally.
+    allow_project_layering = args.with_project_config or args.config is None
+
+    if args.command == "transcribe":
+        overrides = _build_transcribe_overrides(args)
+        cfg, load_error = _load_cfg_or_error(
+            args.config, overrides=overrides, allow_project_layering=allow_project_layering
+        )
+        if load_error is not None:
+            return load_error
+        if args.model is not None:
+            # --model is backend-dependent; now that the effective backend is
+            # known, re-resolve so it lands in the right section.
+            overrides = _build_transcribe_overrides(args, backend=cfg.backend)
+            cfg, load_error = _load_cfg_or_error(
+                args.config, overrides=overrides, allow_project_layering=allow_project_layering
+            )
+            if load_error is not None:
+                return load_error
+        return commands.cmd_transcribe(cfg, args.files, do_summarize=args.summarize)
+
     # Every other command needs an existing, valid tscribe.yaml.
-    cfg, load_error = _load_cfg_or_error(args.config)
+    cfg, load_error = _load_cfg_or_error(args.config, allow_project_layering=allow_project_layering)
     if load_error is not None:
         return load_error
 
     if args.command == "serve":
         return commands.cmd_serve(cfg, host=args.host, port=args.port)
-    if args.command == "transcribe":
-        return commands.cmd_transcribe(cfg, args.files, do_summarize=args.summarize)
     if args.command == "devices":
         return commands.cmd_devices(cfg)
     if args.command == "record":
@@ -194,6 +327,14 @@ def _dispatch(args: argparse.Namespace):
             return commands.cmd_capture_finalize(cfg, session_dir=args.session_dir, out=args.out)
     if args.command == "jobs" and args.jobs_command == "status":
         return commands.cmd_jobs_status(cfg, job_id=args.id)
+    if args.command == "monitor":
+        return commands.cmd_monitor(
+            cfg, job_id=args.id, host=args.host, port=args.port, theme=args.theme
+        )
+    if args.command == "jobs" and args.jobs_command == "monitor":
+        return commands.cmd_monitor(
+            cfg, job_id=args.id, host=args.host, port=args.port, theme=args.theme
+        )
 
     return error(
         f"unrecognized command: {args.command}", ExitCode.USAGE

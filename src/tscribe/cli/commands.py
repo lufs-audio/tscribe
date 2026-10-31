@@ -14,11 +14,14 @@ sys.exit itself.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from tscribe import bootstrap as bootstrap_mod
 from tscribe.capture import (
@@ -369,3 +372,118 @@ def cmd_jobs_status(cfg: RuntimeConfig, *, job_id: str) -> CliResponse:
     if result.status == "failed" and result.error and "unknown job id" in result.error:
         return error(f"job not found: {job_id}", ExitCode.JOB_NOT_FOUND)
     return success(data)
+
+
+# --------------------------------------------------------------------------- #
+# monitor — Unit 04's unified TUI dispatcher
+# --------------------------------------------------------------------------- #
+
+_TUI_BINARY_NAME = "tscribe-tui"
+
+
+def _tui_binary_candidates() -> list[Path]:
+    """Relative build locations to check after $PATH.
+
+    commands.py lives at ``<repo_root>/src/tscribe/cli/commands.py``, so the
+    crate builds at ``<repo_root>/tui/target/release/tscribe-tui``. The
+    spec's shorthand path (``Path(__file__).parents[2]``) resolves to
+    ``<repo_root>/src``, which is not where the crate builds, so the correct
+    repo root (``parents[3]``) is checked too — either layout is honored.
+    Kept as a function so tests can substitute a fixture location without
+    writing into the source tree.
+    """
+    here = Path(__file__).resolve()
+    relative = Path("tui") / "target" / "release" / _TUI_BINARY_NAME
+    return [here.parents[2] / relative, here.parents[3] / relative]
+
+
+def _locate_tui_binary() -> Path | None:
+    """Binary discovery order: ``$PATH`` first, then the relative cargo
+    build path, else None (the caller turns that into an actionable error)."""
+    on_path = shutil.which(_TUI_BINARY_NAME)
+    if on_path:
+        return Path(on_path)
+    for candidate in _tui_binary_candidates():
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _endpoint_host_port(endpoint: str) -> tuple[str | None, int | None]:
+    """Split an endpoint URL into (host, port), defaulting the port by scheme
+    (80 for http, 443 for https) when the URL omits it explicitly."""
+    parsed = urlparse(endpoint)
+    port = parsed.port
+    if port is None:
+        if parsed.scheme == "https":
+            port = 443
+        elif parsed.scheme == "http":
+            port = 80
+    return parsed.hostname, port
+
+
+def cmd_monitor(
+    cfg: RuntimeConfig, *, job_id: str, host: str | None, port: int | None, theme: str
+) -> CliResponse:
+    """`tscribe monitor <id>` (alias `tscribe jobs monitor <id>`) — resolve the
+    server host/port/API key from the active config and hand the terminal to
+    the `tscribe-tui` binary. Read-only: it never creates or mutates a job.
+    """
+    if cfg.remote is None:
+        return error(
+            "tscribe monitor requires a 'remote:' section in tscribe.yaml "
+            "(endpoint + api_key_env) to derive the server host, port, and API "
+            "key from.",
+            ExitCode.USAGE,
+        )
+
+    resolved_host = host
+    resolved_port = port
+    if resolved_host is None or resolved_port is None:
+        endpoint_host, endpoint_port = _endpoint_host_port(cfg.remote.endpoint)
+        if resolved_host is None:
+            resolved_host = endpoint_host
+        if resolved_port is None:
+            resolved_port = endpoint_port
+    if resolved_host is None:
+        resolved_host = "127.0.0.1"
+    if resolved_port is None:
+        return error(
+            f"could not determine a server port from remote.endpoint "
+            f"({cfg.remote.endpoint!r}) — pass --port explicitly.",
+            ExitCode.USAGE,
+        )
+
+    # Sourced at call time, exactly like every other remote caller here — the
+    # secret itself is never stored in the config file.
+    api_key = os.environ.get(cfg.remote.api_key_env, "")
+
+    binary = _locate_tui_binary()
+    if binary is None:
+        return error(
+            "tscribe-tui binary not found. Build it with "
+            "'cd tui && cargo build --release' or place it on $PATH.",
+            ExitCode.USAGE,
+        )
+
+    argv = [
+        str(binary),
+        "--host",
+        resolved_host,
+        "--port",
+        str(resolved_port),
+        "--job-id",
+        job_id,
+        "--theme",
+        theme,
+    ]
+    if api_key:
+        argv += ["--api-key", api_key]
+
+    # subprocess.run (inherited stdio) hands full terminal control to ratatui,
+    # matching the spec's "forwarding terminal control" requirement while
+    # still letting cmd_monitor return a CliResponse.
+    completed = subprocess.run(argv)
+    if completed.returncode != 0:
+        return error(f"tscribe-tui exited with code {completed.returncode}", ExitCode.USAGE)
+    return success({"job_id": job_id, "host": resolved_host, "port": resolved_port, "theme": theme})
